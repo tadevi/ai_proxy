@@ -154,7 +154,7 @@ export function Logs() {
                   <br />
                   <span className="text-zinc-500">{l.resolvedGatewayModel ?? '—'}</span>
                 </td>
-                <td className="p-3">{l.apiFormat?.replace('_', ' ') ?? '—'}</td>
+                <td className="p-3">{l.apiFormat === 'anthropic_compatible' ? 'Anthropic' : l.apiFormat === 'openai_compatible' ? 'OpenAI' : '—'}</td>
                 <td className="p-3">{l.status}</td>
                 <td className="p-3">{l.latencyMs}ms</td>
                 <td className="p-3">
