@@ -29,7 +29,7 @@ export async function buildApp(config: Config) {
         censor: '[REDACTED]',
       },
     },
-    bodyLimit: 2 * 1024 * 1024,
+    bodyLimit: 10 * 1024 * 1024,
     requestIdHeader: 'x-request-id',
   });
   const { db, pool } = createDb(config.DATABASE_URL, databaseTls(config));

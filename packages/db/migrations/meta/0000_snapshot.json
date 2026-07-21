@@ -1,5 +1,5 @@
 {
-  "id": "0ea44d48-8a27-45d8-8ddb-6250b3e343a6",
+  "id": "37313132-2b36-4f36-bc79-a13ea05d8124",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -81,8 +81,12 @@
           "name": "gateway_keys_user_id_users_id_fk",
           "tableFrom": "gateway_keys",
           "tableTo": "users",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -92,7 +96,9 @@
         "gateway_keys_key_hash_unique": {
           "name": "gateway_keys_key_hash_unique",
           "nullsNotDistinct": false,
-          "columns": ["key_hash"]
+          "columns": [
+            "key_hash"
+          ]
         }
       },
       "policies": {},
@@ -156,8 +162,12 @@
           "name": "mapping_routes_mapping_id_mappings_id_fk",
           "tableFrom": "mapping_routes",
           "tableTo": "mappings",
-          "columnsFrom": ["mapping_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "mapping_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -165,8 +175,12 @@
           "name": "mapping_routes_upstream_model_id_upstream_models_id_fk",
           "tableFrom": "mapping_routes",
           "tableTo": "upstream_models",
-          "columnsFrom": ["upstream_model_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "upstream_model_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -176,7 +190,10 @@
         "routes_mapping_model_unique": {
           "name": "routes_mapping_model_unique",
           "nullsNotDistinct": false,
-          "columns": ["mapping_id", "upstream_model_id"]
+          "columns": [
+            "mapping_id",
+            "upstream_model_id"
+          ]
         }
       },
       "policies": {},
@@ -227,8 +244,12 @@
           "name": "mappings_user_id_users_id_fk",
           "tableFrom": "mappings",
           "tableTo": "users",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -238,9 +259,126 @@
         "mappings_user_alias_unique": {
           "name": "mappings_user_alias_unique",
           "nullsNotDistinct": false,
-          "columns": ["user_id", "alias"]
+          "columns": [
+            "user_id",
+            "alias"
+          ]
         }
       },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.provider_connections": {
+      "name": "provider_connections",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_url": {
+          "name": "base_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "encrypted_api_key": {
+          "name": "encrypted_api_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "encryption_iv": {
+          "name": "encryption_iv",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "encryption_auth_tag": {
+          "name": "encryption_auth_tag",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "encryption_key_version": {
+          "name": "encryption_key_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "provider_connections_user_idx": {
+          "name": "provider_connections_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "provider_connections_user_id_users_id_fk": {
+          "name": "provider_connections_user_id_users_id_fk",
+          "tableFrom": "provider_connections",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -387,8 +525,12 @@
           "name": "request_logs_user_id_users_id_fk",
           "tableFrom": "request_logs",
           "tableTo": "users",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -465,8 +607,12 @@
           "name": "sessions_user_id_users_id_fk",
           "tableFrom": "sessions",
           "tableTo": "users",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -476,7 +622,9 @@
         "sessions_token_hash_unique": {
           "name": "sessions_token_hash_unique",
           "nullsNotDistinct": false,
-          "columns": ["token_hash"]
+          "columns": [
+            "token_hash"
+          ]
         }
       },
       "policies": {},
@@ -546,8 +694,12 @@
           "name": "transformation_rules_upstream_model_id_upstream_models_id_fk",
           "tableFrom": "transformation_rules",
           "tableTo": "upstream_models",
-          "columnsFrom": ["upstream_model_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "upstream_model_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -593,6 +745,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "provider_connection_id": {
+          "name": "provider_connection_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
         "api_format": {
           "name": "api_format",
           "type": "api_format",
@@ -600,36 +758,18 @@
           "primaryKey": false,
           "notNull": true
         },
-        "endpoint": {
-          "name": "endpoint",
+        "provider_base_path": {
+          "name": "provider_base_path",
           "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "encrypted_api_key": {
-          "name": "encrypted_api_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "encryption_iv": {
-          "name": "encryption_iv",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "encryption_auth_tag": {
-          "name": "encryption_auth_tag",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "encryption_key_version": {
-          "name": "encryption_key_version",
-          "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": 1
+          "default": "''"
+        },
+        "request_path_override": {
+          "name": "request_path_override",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "context_length": {
           "name": "context_length",
@@ -665,7 +805,7 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "default": "'unknown'"
+          "default": "'no'"
         },
         "supports_reasoning": {
           "name": "supports_reasoning",
@@ -673,7 +813,7 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "default": "'unknown'"
+          "default": "'yes'"
         },
         "enabled": {
           "name": "enabled",
@@ -731,8 +871,25 @@
           "name": "upstream_models_user_id_users_id_fk",
           "tableFrom": "upstream_models",
           "tableTo": "users",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "upstream_models_provider_connection_id_provider_connections_id_fk": {
+          "name": "upstream_models_provider_connection_id_provider_connections_id_fk",
+          "tableFrom": "upstream_models",
+          "tableTo": "provider_connections",
+          "columnsFrom": [
+            "provider_connection_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -742,12 +899,17 @@
         "upstream_models_gateway_model_id_unique": {
           "name": "upstream_models_gateway_model_id_unique",
           "nullsNotDistinct": false,
-          "columns": ["gateway_model_id"]
+          "columns": [
+            "gateway_model_id"
+          ]
         },
         "models_user_gateway_unique": {
           "name": "models_user_gateway_unique",
           "nullsNotDistinct": false,
-          "columns": ["user_id", "gateway_model_id"]
+          "columns": [
+            "user_id",
+            "gateway_model_id"
+          ]
         }
       },
       "policies": {},
@@ -799,7 +961,9 @@
         "users_username_unique": {
           "name": "users_username_unique",
           "nullsNotDistinct": false,
-          "columns": ["username"]
+          "columns": [
+            "username"
+          ]
         }
       },
       "policies": {},
@@ -811,12 +975,19 @@
     "public.api_format": {
       "name": "api_format",
       "schema": "public",
-      "values": ["openai_compatible", "anthropic_compatible"]
+      "values": [
+        "openai_compatible",
+        "anthropic_compatible"
+      ]
     },
     "public.capability": {
       "name": "capability",
       "schema": "public",
-      "values": ["yes", "no", "unknown"]
+      "values": [
+        "yes",
+        "no",
+        "unknown"
+      ]
     }
   },
   "schemas": {},

@@ -21,6 +21,7 @@ import {
   parseSSE,
   type AnthropicRequest,
   type Rule,
+  type StreamUsage,
 } from '@gateway/protocol';
 import { gatewayAuth } from '../auth.js';
 import { decryptCredential, validateUpstreamUrl } from '../security.js';
@@ -254,9 +255,11 @@ async function handleMessage(
       );
   }
   let failure: UpstreamFailure | undefined;
+  let attemptedCount = 0;
   for (let index = 0; index < attempts.length; index++) {
     const attempt = attempts[index]!;
     try {
+      attemptedCount++;
       const result = await callModel(app, attempt.resolved, request, request.model, signal);
       if (result.stream) {
         reply.hijack();
@@ -283,6 +286,8 @@ async function handleMessage(
             status: 200,
             latencyMs: Date.now() - started,
             timeToFirstTokenMs: first ? first - started : null,
+            inputTokens: result.usage?.inputTokens,
+            outputTokens: result.usage?.outputTokens,
             fallbackCount: index,
             skippedRoutes: skipped,
           });
@@ -340,7 +345,7 @@ async function handleMessage(
     incomingModel: request.model,
     status: final.status,
     latencyMs: Date.now() - started,
-    fallbackCount: Math.max(0, attempts.length - 1),
+    fallbackCount: Math.max(0, attemptedCount - 1),
     errorCategory: final.category,
     skippedRoutes: skipped,
   });
@@ -361,7 +366,11 @@ async function callModel(
   request: AnthropicRequest,
   clientModel: string,
   clientSignal: AbortSignal,
-): Promise<{ body?: unknown; stream?: AsyncIterable<string | Uint8Array> }> {
+): Promise<{
+  body?: unknown;
+  stream?: AsyncIterable<string | Uint8Array>;
+  usage?: StreamUsage;
+}> {
   const { model, connection } = resolved;
   const endpoint = requestEndpoint(model, connection);
   await validateUpstreamUrl(
@@ -370,8 +379,18 @@ async function callModel(
     app.config.NODE_ENV === 'production',
   );
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), app.config.UPSTREAM_TIMEOUT_MS);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const resetTimeout = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => controller.abort(), app.config.UPSTREAM_TIMEOUT_MS);
+  };
   const abort = () => controller.abort();
+  const cleanup = () => {
+    if (timer) clearTimeout(timer);
+    clientSignal.removeEventListener('abort', abort);
+  };
+  let streamOwnsCleanup = false;
+  resetTimeout();
   clientSignal.addEventListener('abort', abort, { once: true });
   try {
     const key = decryptCredential(connection, app.config.CREDENTIAL_ENCRYPTION_KEY);
@@ -391,6 +410,7 @@ async function callModel(
       })) satisfies Rule[];
       body = anthropicToOpenAI(request, model.upstreamModelId);
       body = applyRules(body, rules, normalizeThinking(request.thinking));
+      if (request.stream) body.stream_options = { include_usage: true };
       headers = {
         authorization: `Bearer ${key}`,
         'content-type': 'application/json',
@@ -429,13 +449,15 @@ async function callModel(
           true,
           'empty_stream',
         );
-      clearTimeout(timer);
-      clientSignal.removeEventListener('abort', abort);
+      const usage: StreamUsage = {};
+      const source =
+        model.apiFormat === 'openai_compatible'
+          ? openAIStreamToAnthropic(parseSSE(response.body), clientModel, undefined, usage)
+          : rawStream(response.body, usage);
+      streamOwnsCleanup = true;
       return {
-        stream:
-          model.apiFormat === 'openai_compatible'
-            ? openAIStreamToAnthropic(parseSSE(response.body), clientModel)
-            : rawStream(response.body),
+        stream: managedStream(source, resetTimeout, cleanup),
+        usage,
       };
     }
     const json = (await response.json()) as Record<string, unknown>;
@@ -456,18 +478,56 @@ async function callModel(
       error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'network_error',
     );
   } finally {
-    clearTimeout(timer);
-    clientSignal.removeEventListener('abort', abort);
+    if (!streamOwnsCleanup) cleanup();
   }
 }
-async function* rawStream(body: ReadableStream<Uint8Array>) {
+
+async function* managedStream(
+  source: AsyncIterable<string | Uint8Array>,
+  resetTimeout: () => void,
+  cleanup: () => void,
+) {
+  try {
+    for await (const chunk of source) {
+      resetTimeout();
+      yield chunk;
+    }
+  } finally {
+    cleanup();
+  }
+}
+
+async function* rawStream(body: ReadableStream<Uint8Array>, usage: StreamUsage) {
   const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  const readUsage = (payload: string) => {
+    try {
+      const event = JSON.parse(payload) as Record<string, unknown>;
+      const message = event.message as Record<string, unknown> | undefined;
+      const eventUsage = (message?.usage ?? event.usage) as Record<string, unknown> | undefined;
+      if (typeof eventUsage?.input_tokens === 'number') usage.inputTokens = eventUsage.input_tokens;
+      if (typeof eventUsage?.output_tokens === 'number') usage.outputTokens = eventUsage.output_tokens;
+    } catch {
+      // Preserve malformed or non-JSON SSE data for the client without logging usage.
+    }
+  };
+  const consume = (text: string) => {
+    buffer += text;
+    const records = buffer.split(/\r?\n\r?\n/);
+    buffer = records.pop() ?? '';
+    for (const record of records)
+      for (const line of record.split(/\r?\n/))
+        if (line.startsWith('data:')) readUsage(line.slice(5).trim());
+  };
   try {
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
+      consume(decoder.decode(value, { stream: true }));
       yield value;
     }
+    consume(decoder.decode());
   } finally {
     reader.releaseLock();
   }

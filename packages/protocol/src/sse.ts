@@ -1,4 +1,18 @@
 type Json = Record<string, unknown>;
+export type StreamUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+};
+
+function recordOpenAIUsage(event: Json, usage?: StreamUsage) {
+  if (!usage) return;
+  const upstreamUsage = event.usage as Json | undefined;
+  if (typeof upstreamUsage?.prompt_tokens === 'number')
+    usage.inputTokens = upstreamUsage.prompt_tokens;
+  if (typeof upstreamUsage?.completion_tokens === 'number')
+    usage.outputTokens = upstreamUsage.completion_tokens;
+}
+
 const encode = (event: string, data: unknown) =>
   `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 
@@ -6,6 +20,7 @@ export async function* openAIStreamToAnthropic(
   source: AsyncIterable<string>,
   model: string,
   id = `msg_${crypto.randomUUID().replaceAll('-', '')}`,
+  usage?: StreamUsage,
 ) {
   yield encode('message_start', {
     type: 'message_start',
@@ -31,6 +46,7 @@ export async function* openAIStreamToAnthropic(
     } catch {
       continue;
     }
+    recordOpenAIUsage(event, usage);
     const choice = (event.choices as Json[] | undefined)?.[0];
     if (!choice) continue;
     const delta = (choice.delta as Json | undefined) ?? {};

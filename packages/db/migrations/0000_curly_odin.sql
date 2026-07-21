@@ -1,3 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";--> statement-breakpoint
 CREATE TYPE "public"."api_format" AS ENUM('openai_compatible', 'anthropic_compatible');--> statement-breakpoint
 CREATE TYPE "public"."capability" AS ENUM('yes', 'no', 'unknown');--> statement-breakpoint
 CREATE TABLE "gateway_keys" (
@@ -30,6 +31,20 @@ CREATE TABLE "mappings" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "mappings_user_alias_unique" UNIQUE("user_id","alias")
+);
+--> statement-breakpoint
+CREATE TABLE "provider_connections" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" uuid NOT NULL,
+	"display_name" text NOT NULL,
+	"base_url" text NOT NULL,
+	"encrypted_api_key" text NOT NULL,
+	"encryption_iv" text NOT NULL,
+	"encryption_auth_tag" text NOT NULL,
+	"encryption_key_version" integer DEFAULT 1 NOT NULL,
+	"enabled" boolean DEFAULT true NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "request_logs" (
@@ -77,18 +92,16 @@ CREATE TABLE "upstream_models" (
 	"display_name" text NOT NULL,
 	"gateway_model_id" text NOT NULL,
 	"upstream_model_id" text NOT NULL,
+	"provider_connection_id" uuid NOT NULL,
 	"api_format" "api_format" NOT NULL,
-	"endpoint" text NOT NULL,
-	"encrypted_api_key" text NOT NULL,
-	"encryption_iv" text NOT NULL,
-	"encryption_auth_tag" text NOT NULL,
-	"encryption_key_version" integer DEFAULT 1 NOT NULL,
+	"provider_base_path" text DEFAULT '' NOT NULL,
+	"request_path_override" text,
 	"context_length" integer,
 	"max_output_tokens" integer,
 	"supports_streaming" "capability" DEFAULT 'unknown' NOT NULL,
 	"supports_tools" "capability" DEFAULT 'unknown' NOT NULL,
-	"supports_images" "capability" DEFAULT 'unknown' NOT NULL,
-	"supports_reasoning" "capability" DEFAULT 'unknown' NOT NULL,
+	"supports_images" "capability" DEFAULT 'no' NOT NULL,
+	"supports_reasoning" "capability" DEFAULT 'yes' NOT NULL,
 	"enabled" boolean DEFAULT true NOT NULL,
 	"latest_test_status" text,
 	"latest_test_at" timestamp with time zone,
@@ -111,11 +124,14 @@ ALTER TABLE "gateway_keys" ADD CONSTRAINT "gateway_keys_user_id_users_id_fk" FOR
 ALTER TABLE "mapping_routes" ADD CONSTRAINT "mapping_routes_mapping_id_mappings_id_fk" FOREIGN KEY ("mapping_id") REFERENCES "public"."mappings"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "mapping_routes" ADD CONSTRAINT "mapping_routes_upstream_model_id_upstream_models_id_fk" FOREIGN KEY ("upstream_model_id") REFERENCES "public"."upstream_models"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "mappings" ADD CONSTRAINT "mappings_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "provider_connections" ADD CONSTRAINT "provider_connections_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "request_logs" ADD CONSTRAINT "request_logs_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "transformation_rules" ADD CONSTRAINT "transformation_rules_upstream_model_id_upstream_models_id_fk" FOREIGN KEY ("upstream_model_id") REFERENCES "public"."upstream_models"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "upstream_models" ADD CONSTRAINT "upstream_models_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "upstream_models" ADD CONSTRAINT "upstream_models_provider_connection_id_provider_connections_id_fk" FOREIGN KEY ("provider_connection_id") REFERENCES "public"."provider_connections"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "gateway_keys_user_idx" ON "gateway_keys" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "provider_connections_user_idx" ON "provider_connections" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "logs_user_created_idx" ON "request_logs" USING btree ("user_id","created_at");--> statement-breakpoint
 CREATE INDEX "logs_request_idx" ON "request_logs" USING btree ("request_id");--> statement-breakpoint
 CREATE INDEX "sessions_user_idx" ON "sessions" USING btree ("user_id");--> statement-breakpoint

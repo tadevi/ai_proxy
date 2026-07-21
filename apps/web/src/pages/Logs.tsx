@@ -1,6 +1,19 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
+
+function formatTokens(tokens?: number) {
+  if (tokens === undefined || tokens === null) return '—';
+  const [suffix, divisor]: [string, number] =
+    tokens >= 1_000_000_000
+      ? ['B', 1_000_000_000]
+      : tokens >= 1_000_000
+        ? ['M', 1_000_000]
+        : ['K', 1_000];
+  const value = tokens / divisor;
+  return `${Number(value.toFixed(value >= 10 ? 1 : 2))}${suffix}`;
+}
+
 type Log = {
   id: string;
   createdAt: string;
@@ -92,7 +105,7 @@ export function Logs() {
                 'Model → resolved',
                 'Format',
                 'Status',
-                'Latency / TTFT',
+                'Latency',
                 'Tokens',
                 'Fallbacks',
                 'Error',
@@ -115,11 +128,9 @@ export function Logs() {
                 </td>
                 <td className="p-3">{l.apiFormat?.replace('_', ' ') ?? '—'}</td>
                 <td className="p-3">{l.status}</td>
+                <td className="p-3">{l.latencyMs}ms</td>
                 <td className="p-3">
-                  {l.latencyMs}ms / {l.timeToFirstTokenMs ?? '—'}
-                </td>
-                <td className="p-3">
-                  {l.inputTokens ?? '—'} / {l.outputTokens ?? '—'}
+                  {formatTokens(l.inputTokens)} / {formatTokens(l.outputTokens)}
                 </td>
                 <td className="p-3">{l.fallbackCount}</td>
                 <td className="p-3 text-red-300">{l.errorCategory ?? '—'}</td>

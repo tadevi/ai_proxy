@@ -149,6 +149,21 @@ describe('routing and streaming', () => {
     expect(output.join('')).toContain('message_stop');
   });
 
+  it('captures OpenAI streaming usage from the final usage chunk', async () => {
+    async function* source() {
+      yield JSON.stringify({
+        choices: [],
+        usage: { prompt_tokens: 12, completion_tokens: 3 },
+      });
+      yield '[DONE]';
+    }
+    const usage: { inputTokens?: number; outputTokens?: number } = {};
+    for await (const _ of openAIStreamToAnthropic(source(), 'sonnet', 'msg_1', usage)) {
+      // Consume the stream.
+    }
+    expect(usage).toEqual({ inputTokens: 12, outputTokens: 3 });
+  });
+
   it('streams incremental tool arguments', async () => {
     async function* source() {
       yield JSON.stringify({
