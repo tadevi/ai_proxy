@@ -181,6 +181,7 @@ export const requestLogs = pgTable(
     timeToFirstTokenMs: integer('time_to_first_token_ms'),
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
+    cacheInputTokens: integer('cache_input_tokens'),
     fallbackCount: integer('fallback_count').default(0).notNull(),
     errorCategory: text('error_category'),
     providerError: jsonb('provider_error'),
@@ -204,6 +205,7 @@ export const modelUsageDaily = pgTable(
     requestCount: bigint('request_count', { mode: 'number' }).default(0).notNull(),
     inputTokens: bigint('input_tokens', { mode: 'number' }).default(0).notNull(),
     outputTokens: bigint('output_tokens', { mode: 'number' }).default(0).notNull(),
+    cacheInputTokens: bigint('cache_input_tokens', { mode: 'number' }).default(0).notNull(),
   },
   (t) => [
     unique('model_usage_daily_unique').on(t.userId, t.gatewayModelId, t.usageDate),

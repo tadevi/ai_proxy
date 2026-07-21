@@ -61,6 +61,7 @@ type ModelUsage = {
   requestCount: string;
   inputTokens: string;
   outputTokens: string;
+  cacheInputTokens: string;
 };
 
 function formatTokens(value: string | number) {
@@ -405,6 +406,7 @@ export function Models() {
                     <th className="px-4 py-3 font-medium">Format</th>
                     <th className="px-4 py-3 font-medium">Status</th>
                     <th className="px-4 py-3 font-medium text-right">Tokens (in/out)</th>
+                    <th className="px-4 py-3 font-medium text-right">Cache</th>
                     <th className="px-4 py-3 font-medium text-right">Requests</th>
                     <th className="px-4 py-3 font-medium text-right">Actions</th>
                   </tr>
@@ -465,6 +467,9 @@ export function Models() {
                           {modelUsage
                             ? `${formatTokens(modelUsage.inputTokens)} / ${formatTokens(modelUsage.outputTokens)}`
                             : '— / —'}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-xs text-zinc-400">
+                          {modelUsage ? formatTokens(modelUsage.cacheInputTokens) : '—'}
                         </td>
                         <td className="px-4 py-3 text-right text-zinc-400">
                           {modelUsage ? Number(modelUsage.requestCount).toLocaleString() : 0}
@@ -615,7 +620,7 @@ export function Models() {
                       )}
                     </div>
                   </div>
-                  <div className="grid border-t border-zinc-800 sm:grid-cols-3">
+                  <div className="grid border-t border-zinc-800 sm:grid-cols-4">
                     <div className="border-b border-zinc-800 px-6 py-4 sm:border-r sm:border-b-0">
                       <p className="text-xs text-zinc-500">Input tokens</p>
                       <p className="mt-1 text-[22px] font-medium">
@@ -626,6 +631,12 @@ export function Models() {
                       <p className="text-xs text-zinc-500">Output tokens</p>
                       <p className="mt-1 text-[22px] font-medium">
                         {modelUsage ? formatTokens(modelUsage.outputTokens) : '—'}
+                      </p>
+                    </div>
+                    <div className="border-b border-zinc-800 px-6 py-4 sm:border-r sm:border-b-0">
+                      <p className="text-xs text-zinc-500">Cache tokens</p>
+                      <p className="mt-1 text-[22px] font-medium">
+                        {modelUsage ? formatTokens(modelUsage.cacheInputTokens) : '—'}
                       </p>
                     </div>
                     <div className="px-6 py-4">

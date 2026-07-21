@@ -404,6 +404,7 @@ async function handleMessage(
             timeToFirstTokenMs: first ? first - started : null,
             inputTokens: result.usage?.inputTokens,
             outputTokens: result.usage?.outputTokens,
+            cacheInputTokens: result.usage?.cacheInputTokens,
             fallbackCount: index,
             skippedRoutes: skipped,
           });
@@ -426,6 +427,8 @@ async function handleMessage(
       }
       const body = result.body as Record<string, unknown>;
       const usage = body.usage as Record<string, number> | undefined;
+      const cacheTokens =
+        (usage?.cache_creation_input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0);
       await clearModelError(app, attempt.resolved.model.id);
       await writeLog(app, {
         userId,
@@ -437,6 +440,7 @@ async function handleMessage(
         latencyMs: Date.now() - started,
         inputTokens: usage?.input_tokens,
         outputTokens: usage?.output_tokens,
+        cacheInputTokens: cacheTokens || undefined,
         fallbackCount: index,
         skippedRoutes: skipped,
       });
@@ -672,6 +676,10 @@ async function* rawStream(body: ReadableStream<Uint8Array>, usage: StreamUsage) 
       if (typeof eventUsage?.input_tokens === 'number') usage.inputTokens = eventUsage.input_tokens;
       if (typeof eventUsage?.output_tokens === 'number')
         usage.outputTokens = eventUsage.output_tokens;
+      if (typeof eventUsage?.cache_creation_input_tokens === 'number')
+        usage.cacheInputTokens = (usage.cacheInputTokens ?? 0) + eventUsage.cache_creation_input_tokens;
+      if (typeof eventUsage?.cache_read_input_tokens === 'number')
+        usage.cacheInputTokens = (usage.cacheInputTokens ?? 0) + eventUsage.cache_read_input_tokens;
     } catch {
       // Preserve malformed or non-JSON SSE data for the client without logging usage.
     }
@@ -739,6 +747,7 @@ async function writeLog(app: FastifyInstance, values: typeof requestLogs.$inferI
         requestCount: 1,
         inputTokens: values.inputTokens ?? 0,
         outputTokens: values.outputTokens ?? 0,
+        cacheInputTokens: values.cacheInputTokens ?? 0,
       })
       .onConflictDoUpdate({
         target: [modelUsageDaily.userId, modelUsageDaily.gatewayModelId, modelUsageDaily.usageDate],
@@ -746,6 +755,7 @@ async function writeLog(app: FastifyInstance, values: typeof requestLogs.$inferI
           requestCount: sql`${modelUsageDaily.requestCount} + 1`,
           inputTokens: sql`${modelUsageDaily.inputTokens} + ${values.inputTokens ?? 0}`,
           outputTokens: sql`${modelUsageDaily.outputTokens} + ${values.outputTokens ?? 0}`,
+          cacheInputTokens: sql`${modelUsageDaily.cacheInputTokens} + ${values.cacheInputTokens ?? 0}`,
         },
       });
   });

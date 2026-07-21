@@ -278,6 +278,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
         requestCount: sql<string>`coalesce(sum(${modelUsageDaily.requestCount}), 0)::text`,
         inputTokens: sql<string>`coalesce(sum(${modelUsageDaily.inputTokens}), 0)::text`,
         outputTokens: sql<string>`coalesce(sum(${modelUsageDaily.outputTokens}), 0)::text`,
+        cacheInputTokens: sql<string>`coalesce(sum(${modelUsageDaily.cacheInputTokens}), 0)::text`,
       })
       .from(modelUsageDaily)
       .where(eq(modelUsageDaily.userId, req.dashboardUser!.id))

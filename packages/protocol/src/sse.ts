@@ -2,6 +2,7 @@ type Json = Record<string, unknown>;
 export type StreamUsage = {
   inputTokens?: number;
   outputTokens?: number;
+  cacheInputTokens?: number;
 };
 
 function recordOpenAIUsage(event: Json, usage?: StreamUsage) {
@@ -11,6 +12,9 @@ function recordOpenAIUsage(event: Json, usage?: StreamUsage) {
     usage.inputTokens = upstreamUsage.prompt_tokens;
   if (typeof upstreamUsage?.completion_tokens === 'number')
     usage.outputTokens = upstreamUsage.completion_tokens;
+  const details = upstreamUsage?.prompt_tokens_details as Json | undefined;
+  if (typeof details?.cached_tokens === 'number')
+    usage.cacheInputTokens = details.cached_tokens;
 }
 
 const encode = (event: string, data: unknown) =>

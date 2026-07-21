@@ -168,6 +168,7 @@ export function openAIToAnthropic(response: Json, clientModel: string) {
   const stopReason =
     finish === 'tool_calls' ? 'tool_use' : finish === 'length' ? 'max_tokens' : 'end_turn';
   const usage = (response.usage as Json | undefined) ?? {};
+  const details = usage.prompt_tokens_details as Json | undefined;
   return {
     id: response.id ?? `msg_${crypto.randomUUID().replaceAll('-', '')}`,
     type: 'message',
@@ -176,6 +177,10 @@ export function openAIToAnthropic(response: Json, clientModel: string) {
     content,
     stop_reason: stopReason,
     stop_sequence: null,
-    usage: { input_tokens: usage.prompt_tokens ?? 0, output_tokens: usage.completion_tokens ?? 0 },
+    usage: {
+      input_tokens: usage.prompt_tokens ?? 0,
+      output_tokens: usage.completion_tokens ?? 0,
+      cache_read_input_tokens: typeof details?.cached_tokens === 'number' ? details.cached_tokens : undefined,
+    },
   };
 }
