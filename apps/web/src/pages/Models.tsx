@@ -169,100 +169,129 @@ export function Models() {
         {models.data?.map((m) => {
           const modelUsage = usageByModel.get(m.gatewayModelId);
           return (
-            <div className="card flex flex-col gap-4 lg:flex-row lg:items-center" key={m.id}>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <h2 className="font-medium">{m.displayName}</h2>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs ${m.enabled ? 'bg-emerald-950 text-emerald-300' : 'bg-zinc-800 text-zinc-400'}`}
-                  >
-                    {m.enabled ? 'Enabled' : 'Disabled'}
-                  </span>
-                  {m.latestTestStatus && (
-                    <span className="text-xs text-zinc-400">Health: {m.latestTestStatus}</span>
-                  )}
-                  {m.cooldownUntil && new Date(m.cooldownUntil) > new Date() && (
-                    <span className="text-xs text-amber-300">
-                      Cooling down until {new Date(m.cooldownUntil).toLocaleTimeString()}
+            <div className="card overflow-hidden p-0" key={m.id}>
+              <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-start">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-lg font-semibold">{m.displayName}</h2>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs ${m.enabled ? 'bg-emerald-950 text-emerald-300' : 'bg-zinc-800 text-zinc-400'}`}
+                    >
+                      {m.enabled ? 'Enabled' : 'Disabled'}
                     </span>
-                  )}
-                </div>
-                <p className="mt-1 truncate font-mono text-sm text-indigo-300">
-                  {m.gatewayModelId}
-                </p>
-                <p className="muted truncate">
-                  {m.providerConnectionName} · {m.apiFormat.replace('_', ' ')} · {m.upstreamModelId}
-                </p>
-                <p className="mt-2 text-sm text-zinc-300">
-                  {modelUsage
-                    ? `Usage: ${formatTokens(modelUsage.inputTokens)} in · ${formatTokens(modelUsage.outputTokens)} out · ${modelUsage.requestCount} requests`
-                    : 'Usage: no requests yet'}
-                </p>
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {['Images', 'Reasoning'].map((k) => (
-                    <span className="rounded bg-zinc-800 px-2 py-1 text-xs" key={k}>
-                      {k}: {m[`supports${k}` as keyof Model] as string}
-                    </span>
-                  ))}
-                </div>
-                {m.latestError && (
-                  <p
-                    className="mt-3 line-clamp-2 text-sm text-red-300"
-                    title={latestErrorMessage(m.latestError)}
-                  >
-                    Last error
-                    {m.latestErrorAt
-                      ? ` · ${new Date(m.latestErrorAt).toLocaleString()}`
-                      : ''}: {latestErrorMessage(m.latestError)}
+                    {m.latestTestStatus && (
+                      <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300">
+                        Health: {m.latestTestStatus}
+                      </span>
+                    )}
+                    {m.cooldownUntil && new Date(m.cooldownUntil) > new Date() && (
+                      <span className="rounded-full bg-amber-950 px-2 py-0.5 text-xs text-amber-300">
+                        Cooling down until {new Date(m.cooldownUntil).toLocaleTimeString()}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 truncate font-mono text-xs text-indigo-300">
+                    {m.gatewayModelId}
                   </p>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <button
-                  aria-checked={m.enabled}
-                  aria-label={`${m.enabled ? 'Disable' : 'Enable'} ${m.displayName}`}
-                  className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 ${m.enabled ? 'bg-emerald-500/80' : 'bg-zinc-700'}`}
-                  disabled={toggleEnabled.isPending}
-                  onClick={() => toggleEnabled.mutate({ id: m.id, enabled: !m.enabled })}
-                  role="switch"
-                  title={m.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}
-                  type="button"
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-zinc-100 shadow-sm transition-transform ${m.enabled ? 'translate-x-4' : 'translate-x-0'}`}
-                  />
-                </button>
-                <button
-                  className="btn"
-                  disabled={testingId === m.id}
-                  onClick={() => test.mutate(m.id)}
-                >
-                  {testingId === m.id ? 'Testing…' : 'Test'}
-                </button>
-                <button
-                  className="btn"
-                  onClick={() => {
-                    setEditing(m);
-                    setShow(true);
-                  }}
-                >
-                  Edit
-                </button>
-                {m.apiFormat === 'openai_compatible' && (
-                  <button className="btn" onClick={() => setRulesModel(m)}>
-                    Rules
+                  <p className="muted mt-2 truncate">
+                    {m.providerConnectionName} · {m.apiFormat.replace('_', ' ')} ·{' '}
+                    {m.upstreamModelId}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                  <button
+                    aria-checked={m.enabled}
+                    aria-label={`${m.enabled ? 'Disable' : 'Enable'} ${m.displayName}`}
+                    className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 ${m.enabled ? 'bg-emerald-500/80' : 'bg-zinc-700'}`}
+                    disabled={toggleEnabled.isPending}
+                    onClick={() => toggleEnabled.mutate({ id: m.id, enabled: !m.enabled })}
+                    role="switch"
+                    title={m.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}
+                    type="button"
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-zinc-100 shadow-sm transition-transform ${m.enabled ? 'translate-x-4' : 'translate-x-0'}`}
+                    />
                   </button>
-                )}
-                <button
-                  className="btn btn-danger"
-                  onClick={() =>
-                    confirm('Delete this model? It will also be removed from mappings.') &&
-                    del.mutate(m.id)
-                  }
-                >
-                  Delete
-                </button>
+                  <button
+                    className="btn"
+                    disabled={testingId === m.id}
+                    onClick={() => test.mutate(m.id)}
+                  >
+                    {testingId === m.id ? 'Testing…' : 'Test'}
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      setEditing(m);
+                      setShow(true);
+                    }}
+                  >
+                    Edit
+                  </button>
+                  {m.apiFormat === 'openai_compatible' && (
+                    <button className="btn" onClick={() => setRulesModel(m)}>
+                      Rules
+                    </button>
+                  )}
+                  <button
+                    className="btn btn-danger"
+                    onClick={() =>
+                      confirm('Delete this model? It will also be removed from mappings.') &&
+                      del.mutate(m.id)
+                    }
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
+              <div className="grid border-t border-zinc-800 sm:grid-cols-3">
+                <div className="border-b border-zinc-800 p-4 sm:border-r sm:border-b-0">
+                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Input tokens
+                  </p>
+                  <p className="mt-1 text-lg font-medium">
+                    {modelUsage ? formatTokens(modelUsage.inputTokens) : '—'}
+                  </p>
+                </div>
+                <div className="border-b border-zinc-800 p-4 sm:border-r sm:border-b-0">
+                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Output tokens
+                  </p>
+                  <p className="mt-1 text-lg font-medium">
+                    {modelUsage ? formatTokens(modelUsage.outputTokens) : '—'}
+                  </p>
+                </div>
+                <div className="p-4">
+                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Requests
+                  </p>
+                  <p className="mt-1 text-lg font-medium">{modelUsage?.requestCount ?? 0}</p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Images: {m.supportsImages} · Reasoning: {m.supportsReasoning}
+                  </p>
+                </div>
+              </div>
+              {m.latestError && (
+                <details className="border-t border-red-950 bg-red-950/20 px-5 py-3 text-sm text-red-200">
+                  <summary className="cursor-pointer list-none">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="shrink-0 font-medium">Last error</span>
+                      {m.latestErrorAt && (
+                        <span className="shrink-0 text-xs text-red-300/70">
+                          {new Date(m.latestErrorAt).toLocaleString()}
+                        </span>
+                      )}
+                      <span className="truncate text-red-200/90">
+                        {latestErrorMessage(m.latestError)}
+                      </span>
+                    </div>
+                  </summary>
+                  <pre className="mt-3 max-h-48 overflow-auto rounded-lg bg-zinc-950 p-3 text-xs text-red-100">
+                    {JSON.stringify(m.latestError, null, 2)}
+                  </pre>
+                </details>
+              )}
             </div>
           );
         })}

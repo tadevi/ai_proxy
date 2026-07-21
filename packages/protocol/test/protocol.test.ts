@@ -47,6 +47,22 @@ describe('protocol conversion', () => {
     ]);
   });
 
+  it('preserves unfamiliar content blocks for Anthropic-compatible upstreams', () => {
+    const block = {
+      type: 'server_tool_use',
+      id: 'srv_1',
+      name: 'web_search',
+      input: { query: 'Figma design' },
+      caller_supplied_field: true,
+    };
+    const parsed = anthropicRequestSchema.parse({
+      model: 'sonnet',
+      max_tokens: 100,
+      messages: [{ role: 'assistant', content: [block] }],
+    });
+    expect(parsed.messages[0]?.content).toEqual([block]);
+  });
+
   it('converts Anthropic text, limits, and tools to OpenAI', () => {
     const body = anthropicToOpenAI(
       { ...request, tools: [{ name: 'weather', input_schema: { type: 'object' } }] },

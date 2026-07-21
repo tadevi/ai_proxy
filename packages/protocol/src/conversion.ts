@@ -32,8 +32,11 @@ export function normalizeSystemMessages(request: AnthropicRequest): AnthropicReq
       typeof message.content === 'string'
         ? message.content
         : message.content
-            .filter((block) => block.type === 'text')
-            .map((block) => block.text)
+            .flatMap((block) =>
+              block.type === 'text' && typeof (block as Json).text === 'string'
+                ? [(block as Json).text as string]
+                : [],
+            )
             .join('\n'),
     );
   }
@@ -80,27 +83,45 @@ export function anthropicToOpenAI(request: AnthropicRequest, upstreamModel: stri
     ) as unknown as Json[];
     if (regular.length) messages.push({ role: message.role, content: textContent(regular) });
     for (const block of message.content) {
-      if (block.type === 'tool_use')
+      if (
+        block.type === 'tool_use' &&
+        typeof (block as Json).id === 'string' &&
+        typeof (block as Json).name === 'string'
+      ) {
+        const tool = block as Json;
         messages.push({
           role: 'assistant',
           content: null,
           tool_calls: [
             {
-              id: block.id,
+              id: tool.id,
               type: 'function',
-              function: { name: block.name, arguments: JSON.stringify(block.input) },
+              function: { name: tool.name, arguments: JSON.stringify(tool.input) },
             },
           ],
         });
-      if (block.type === 'tool_result')
+      }
+      if (block.type === 'tool_result' && typeof (block as Json).tool_use_id === 'string') {
+        const result = block as Json;
+        const resultContent = result.content;
         messages.push({
           role: 'tool',
-          tool_call_id: block.tool_use_id,
+          tool_call_id: result.tool_use_id,
           content:
-            typeof block.content === 'string'
-              ? block.content
-              : block.content.map((b) => b.text).join('\n'),
+            typeof resultContent === 'string'
+              ? resultContent
+              : Array.isArray(resultContent)
+                ? resultContent
+                    .flatMap((item) => {
+                      const value = item as Json;
+                      return value.type === 'text' && typeof value.text === 'string'
+                        ? [value.text]
+                        : [];
+                    })
+                    .join('\n')
+                : '',
         });
+      }
     }
   }
   const body: Json = {
