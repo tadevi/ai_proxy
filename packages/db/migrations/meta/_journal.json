@@ -71,6 +71,13 @@
       "when": 1784630000000,
       "tag": "0009_silly_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784635000000,
+      "tag": "0010_connection_centric",
+      "breakpoints": true
     }
   ]
 }

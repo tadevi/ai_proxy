@@ -52,6 +52,8 @@ export const gatewayKeys = pgTable(
   },
   (t) => [index('gateway_keys_user_idx').on(t.userId)],
 );
+
+// ── Connections ──────────────────────────────────────────────
 export const providerConnections = pgTable(
   'provider_connections',
   {
@@ -61,6 +63,25 @@ export const providerConnections = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     displayName: text('display_name').notNull(),
     baseUrl: text('base_url').notNull(),
+    enabled: boolean('enabled').default(true).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('provider_connections_user_idx').on(t.userId)],
+);
+
+// ── Connection tokens (API keys per connection) ─────────────
+export const connectionTokens = pgTable(
+  'connection_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => providerConnections.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
     encryptedApiKey: text('encrypted_api_key').notNull(),
     encryptionIv: text('encryption_iv').notNull(),
     encryptionAuthTag: text('encryption_auth_tag').notNull(),
@@ -69,8 +90,58 @@ export const providerConnections = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index('provider_connections_user_idx').on(t.userId)],
+  (t) => [
+    index('tokens_user_idx').on(t.userId),
+    index('tokens_connection_idx').on(t.connectionId),
+    unique('tokens_connection_name_unique').on(t.connectionId, t.name),
+  ],
 );
+
+// ── Model presets ───────────────────────────────────────────
+export const modelPresets = pgTable(
+  'model_presets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    displayName: text('display_name').notNull(),
+    upstreamModelId: text('upstream_model_id').notNull(),
+    apiFormat: apiFormat('api_format').notNull(),
+    supportsImages: capability('supports_images').default('no').notNull(),
+    supportsReasoning: capability('supports_reasoning').default('no').notNull(),
+    maxOutputTokens: integer('max_output_tokens'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('model_presets_user_idx').on(t.userId)],
+);
+
+// ── Model bindings (preset × connection) ────────────────────
+export const modelBindings = pgTable(
+  'model_bindings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    presetId: uuid('preset_id')
+      .notNull()
+      .references(() => modelPresets.id, { onDelete: 'restrict' }),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => providerConnections.id, { onDelete: 'cascade' }),
+    apiFormat: apiFormat('api_format').notNull(),
+    providerBasePath: text('provider_base_path').default('').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('bindings_user_idx').on(t.userId),
+    index('bindings_connection_idx').on(t.connectionId),
+    unique('bindings_connection_preset_format_unique').on(t.connectionId, t.presetId, t.apiFormat),
+  ],
+);
+
+// ── Upstream models (auto-generated from bindings × tokens) ─
 export const upstreamModels = pgTable(
   'upstream_models',
   {
@@ -83,6 +154,8 @@ export const upstreamModels = pgTable(
     providerConnectionId: uuid('provider_connection_id')
       .notNull()
       .references(() => providerConnections.id, { onDelete: 'cascade' }),
+    bindingId: uuid('binding_id').references(() => modelBindings.id, { onDelete: 'set null' }),
+    tokenId: uuid('token_id').references(() => connectionTokens.id, { onDelete: 'set null' }),
     apiFormat: apiFormat('api_format').notNull(),
     providerBasePath: text('provider_base_path').default('').notNull(),
     requestPathOverride: text('request_path_override'),
@@ -106,22 +179,8 @@ export const upstreamModels = pgTable(
     unique('models_connection_upstream_unique').on(t.providerConnectionId, t.upstreamModelId),
   ],
 );
-export const modelPresets = pgTable(
-  'model_presets',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
-    displayName: text('display_name').notNull(),
-    upstreamModelId: text('upstream_model_id').notNull(),
-    apiFormat: apiFormat('api_format').notNull(),
-    supportsImages: capability('supports_images').default('no').notNull(),
-    supportsReasoning: capability('supports_reasoning').default('no').notNull(),
-    maxOutputTokens: integer('max_output_tokens'),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (t) => [index('model_presets_user_idx').on(t.userId)],
-);
+
+// ── Mappings ────────────────────────────────────────────────
 export const mappings = pgTable(
   'mappings',
   {
