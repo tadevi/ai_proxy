@@ -27,9 +27,9 @@ const ssl =
 const { db, pool } = createDb(url, ssl);
 
 const systemPresets = [
-  { displayName: 'DeepSeek V4 Pro', upstreamModelId: 'deepseek-v4-pro', apiFormat: 'openai_compatible', supportsImages: 'no', supportsReasoning: 'yes', maxOutputTokens: 65536 },
-  { displayName: 'Mimo 2.5', upstreamModelId: 'mimo-v2.5', apiFormat: 'openai_compatible', supportsImages: 'yes', supportsReasoning: 'no', maxOutputTokens: 8192 },
-  { displayName: 'Mimo 2.5 Pro', upstreamModelId: 'mimo-v2.5-pro', apiFormat: 'openai_compatible', supportsImages: 'no', supportsReasoning: 'yes', maxOutputTokens: 16384 },
+  { displayName: 'DeepSeek V4 Pro', upstreamModelId: 'deepseek-v4-pro', apiFormat: 'anthropic_compatible', supportsImages: 'no', supportsReasoning: 'yes', maxOutputTokens: 65536 },
+  { displayName: 'Mimo 2.5', upstreamModelId: 'mimo-v2.5', apiFormat: 'anthropic_compatible', supportsImages: 'yes', supportsReasoning: 'no', maxOutputTokens: 128000 },
+  { displayName: 'Mimo 2.5 Pro', upstreamModelId: 'mimo-v2.5-pro', apiFormat: 'anthropic_compatible', supportsImages: 'no', supportsReasoning: 'yes', maxOutputTokens: 128000 },
 ];
 
 await db.execute(sql`DELETE FROM model_presets WHERE user_id IS NULL`);
