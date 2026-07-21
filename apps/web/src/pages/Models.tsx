@@ -381,160 +381,286 @@ export function Models() {
         </div>
       )}
       {rulesModel && <ThinkingRules model={rulesModel} onClose={() => setRulesModel(null)} />}
-      <div className="grid gap-4">
-        {models.data?.map((m) => {
-          const modelUsage = usageByModel.get(m.gatewayModelId);
+      {(() => {
+        const filtered = (models.data ?? []).filter(
+          (m) => !filterConnection || m.providerConnectionName === filterConnection,
+        );
+        if (filtered.length === 0) {
           return (
-            <div className="card overflow-hidden p-0" key={m.id}>
-              <div className="p-5">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <h2 className="font-mono text-lg font-medium">{m.displayName}</h2>
-                    <span className="font-mono text-[13px] text-zinc-500">(id: {m.gatewayModelId})</span>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center gap-2">
-                    <button
-                      aria-checked={m.enabled}
-                      aria-label={`${m.enabled ? 'Disable' : 'Enable'} ${m.displayName}`}
-                      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 ${m.enabled ? 'bg-emerald-500/80' : 'bg-zinc-700'}`}
-                      disabled={toggleEnabled.isPending}
-                      onClick={() => toggleEnabled.mutate({ id: m.id, enabled: !m.enabled })}
-                      role="switch"
-                      title={m.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}
-                      type="button"
-                    >
-                      <span
-                        className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-zinc-100 shadow-sm transition-transform ${m.enabled ? 'translate-x-4' : 'translate-x-0'}`}
-                      />
-                    </button>
-                    <button
-                      className="btn h-8 px-3.5 text-[13px]"
-                      disabled={testingId === m.id}
-                      onClick={() => test.mutate(m.id)}
-                    >
-                      {testingId === m.id ? 'Testing…' : 'Test'}
-                    </button>
-                    <button
-                      className="btn h-8 px-3.5 text-[13px]"
-                      onClick={() => {
-                        setEditing(m);
-                        setAddMode('manual');
-                      }}
-                    >
-                      Edit
-                    </button>
-                    {m.apiFormat === 'openai_compatible' && (
-                      <button className="btn h-8 px-3.5 text-[13px]" onClick={() => setRulesModel(m)}>
-                        Rules
-                      </button>
-                    )}
-                    <button
-                      className="btn btn-danger h-8 px-3.5 text-[13px]"
-                      onClick={() =>
-                        confirm('Delete this model? It will also be removed from mappings.') &&
-                        del.mutate(m.id)
-                      }
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[13px]">
-                  <span className="font-mono text-zinc-400">{m.upstreamModelId}</span>
-                  <span className="text-zinc-600">·</span>
-                  <span className="text-zinc-400">{m.providerConnectionName}</span>
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <span
-                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${m.enabled ? 'bg-emerald-950 text-emerald-400' : 'bg-zinc-800 text-zinc-400'}`}
-                  >
-                    {m.enabled && (
-                      <span className="relative inline-block h-1.5 w-1.5 rounded-full bg-emerald-400">
-                        <span className="absolute -inset-1 rounded-full border border-emerald-400 opacity-50 animate-[pulse-ring_2s_ease-out_infinite]" />
-                      </span>
-                    )}
-                    {m.enabled ? 'Enabled' : 'Disabled'}
-                  </span>
-                  {m.latestTestStatus && (
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${m.latestTestStatus === 'healthy' ? 'bg-emerald-950 text-emerald-400' : 'bg-red-950 text-red-400'}`}
-                    >
-                      {m.latestTestStatus === 'healthy' ? 'Healthy' : 'Unhealthy'}
-                    </span>
-                  )}
-                  {m.cooldownUntil && new Date(m.cooldownUntil) > new Date() && (
-                    <span className="rounded-full bg-amber-950 px-2.5 py-0.5 text-xs font-medium text-amber-400">
-                      Cooling down until {new Date(m.cooldownUntil).toLocaleTimeString()}
-                    </span>
-                  )}
-                  <span
-                    className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${m.apiFormat === 'anthropic_compatible' ? 'bg-indigo-950 text-indigo-300' : 'bg-sky-950 text-sky-300'}`}
-                  >
-                    {m.apiFormat === 'anthropic_compatible' ? 'Anthropic' : 'OpenAI'}
-                  </span>
-                  {m.supportsReasoning === 'yes' && (
-                    <span className="rounded-full border border-zinc-700 px-2.5 py-0.5 text-xs text-zinc-400">
-                      Reasoning
-                    </span>
-                  )}
-                  {m.supportsImages === 'yes' && (
-                    <span className="rounded-full border border-zinc-700 px-2.5 py-0.5 text-xs text-zinc-400">
-                      Images
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="grid border-t border-zinc-800 sm:grid-cols-3">
-                <div className="border-b border-zinc-800 px-6 py-4 sm:border-r sm:border-b-0">
-                  <p className="text-xs text-zinc-500">Input tokens</p>
-                  <p className="mt-1 text-[22px] font-medium">
-                    {modelUsage ? formatTokens(modelUsage.inputTokens) : '—'}
-                  </p>
-                </div>
-                <div className="border-b border-zinc-800 px-6 py-4 sm:border-r sm:border-b-0">
-                  <p className="text-xs text-zinc-500">Output tokens</p>
-                  <p className="mt-1 text-[22px] font-medium">
-                    {modelUsage ? formatTokens(modelUsage.outputTokens) : '—'}
-                  </p>
-                </div>
-                <div className="px-6 py-4">
-                  <p className="text-xs text-zinc-500">Requests</p>
-                  <p className="mt-1 text-[22px] font-medium">
-                    {modelUsage ? Number(modelUsage.requestCount).toLocaleString() : 0}
-                  </p>
-                </div>
-              </div>
-              {m.latestError && (
-                <details className="border-t border-red-950 bg-red-950/20 px-5 py-3 text-sm text-red-200">
-                  <summary className="cursor-pointer list-none">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="shrink-0 font-medium">Last error</span>
-                      {m.latestErrorAt && (
-                        <span className="shrink-0 text-xs text-red-300/70">
-                          {new Date(m.latestErrorAt).toLocaleString()}
-                        </span>
-                      )}
-                      <span className="truncate text-red-200/90">
-                        {latestErrorMessage(m.latestError)}
-                      </span>
-                    </div>
-                  </summary>
-                  <pre className="mt-3 max-h-48 overflow-auto rounded-lg bg-zinc-950 p-3 text-xs text-red-100">
-                    {JSON.stringify(m.latestError, null, 2)}
-                  </pre>
-                </details>
-              )}
+            <div className="card text-center text-zinc-400">
+              {models.data?.length === 0
+                ? 'Add your first upstream model to get started.'
+                : 'No models match the selected connection.'}
             </div>
           );
-        })}
-        {models.data?.length === 0 && (
-          <div className="card text-center text-zinc-400">
-            Add your first upstream model to get started.
+        }
+        if (viewMode === 'list') {
+          return (
+            <div className="card overflow-hidden p-0">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-800 text-left text-xs text-zinc-500">
+                    <th className="px-4 py-3 font-medium">Model</th>
+                    <th className="px-4 py-3 font-medium">Connection</th>
+                    <th className="px-4 py-3 font-medium">Format</th>
+                    <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium text-right">Tokens (in/out)</th>
+                    <th className="px-4 py-3 font-medium text-right">Requests</th>
+                    <th className="px-4 py-3 font-medium text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((m) => {
+                    const modelUsage = usageByModel.get(m.gatewayModelId);
+                    return (
+                      <tr className="border-b border-zinc-800/50 hover:bg-zinc-800/30" key={m.id}>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <button
+                              aria-checked={m.enabled}
+                              aria-label={`${m.enabled ? 'Disable' : 'Enable'} ${m.displayName}`}
+                              className={`relative h-4 w-7 shrink-0 rounded-full transition-colors focus:outline-none ${m.enabled ? 'bg-emerald-500/80' : 'bg-zinc-700'}`}
+                              disabled={toggleEnabled.isPending}
+                              onClick={() => toggleEnabled.mutate({ id: m.id, enabled: !m.enabled })}
+                              role="switch"
+                              type="button"
+                            >
+                              <span
+                                className={`absolute top-0.5 left-0.5 h-3 w-3 rounded-full bg-zinc-100 shadow-sm transition-transform ${m.enabled ? 'translate-x-3' : 'translate-x-0'}`}
+                              />
+                            </button>
+                            <div className="min-w-0">
+                              <div className="truncate font-medium">{m.displayName}</div>
+                              <div className="truncate font-mono text-[11px] text-zinc-500">
+                                {m.gatewayModelId}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-zinc-400">{m.providerConnectionName}</td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${m.apiFormat === 'anthropic_compatible' ? 'bg-indigo-950 text-indigo-300' : 'bg-sky-950 text-sky-300'}`}
+                          >
+                            {m.apiFormat === 'anthropic_compatible' ? 'Anthropic' : 'OpenAI'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5">
+                            {m.latestTestStatus && (
+                              <span
+                                className={`inline-block h-2 w-2 rounded-full ${m.latestTestStatus === 'healthy' ? 'bg-emerald-400' : 'bg-red-400'}`}
+                              />
+                            )}
+                            <span className="text-zinc-400">
+                              {m.latestTestStatus === 'healthy'
+                                ? 'Healthy'
+                                : m.latestTestStatus === 'failed'
+                                  ? 'Failed'
+                                  : '—'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-xs text-zinc-400">
+                          {modelUsage
+                            ? `${formatTokens(modelUsage.inputTokens)} / ${formatTokens(modelUsage.outputTokens)}`
+                            : '— / —'}
+                        </td>
+                        <td className="px-4 py-3 text-right text-zinc-400">
+                          {modelUsage ? Number(modelUsage.requestCount).toLocaleString() : 0}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end gap-1">
+                            <button
+                              className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                              disabled={testingId === m.id}
+                              onClick={() => test.mutate(m.id)}
+                              title={testingId === m.id ? 'Testing…' : 'Test'}
+                            >
+                              {testingId === m.id ? '…' : '▶'}
+                            </button>
+                            <button
+                              className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                              onClick={() => {
+                                setEditing(m);
+                                setAddMode('manual');
+                              }}
+                              title="Edit"
+                            >
+                              ✎
+                            </button>
+                            <button
+                              className="rounded p-1.5 text-zinc-500 hover:bg-red-950 hover:text-red-400"
+                              onClick={() =>
+                                confirm('Delete this model? It will also be removed from mappings.') &&
+                                del.mutate(m.id)
+                              }
+                              title="Delete"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+        return (
+          <div className="grid gap-4">
+            {filtered.map((m) => {
+              const modelUsage = usageByModel.get(m.gatewayModelId);
+              return (
+                <div className="card overflow-hidden p-0" key={m.id}>
+                  <div className="p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div className="flex flex-wrap items-baseline gap-2">
+                        <h2 className="font-mono text-lg font-medium">{m.displayName}</h2>
+                        <span className="font-mono text-[13px] text-zinc-500">(id: {m.gatewayModelId})</span>
+                      </div>
+                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        <button
+                          aria-checked={m.enabled}
+                          aria-label={`${m.enabled ? 'Disable' : 'Enable'} ${m.displayName}`}
+                          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 ${m.enabled ? 'bg-emerald-500/80' : 'bg-zinc-700'}`}
+                          disabled={toggleEnabled.isPending}
+                          onClick={() => toggleEnabled.mutate({ id: m.id, enabled: !m.enabled })}
+                          role="switch"
+                          title={m.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}
+                          type="button"
+                        >
+                          <span
+                            className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-zinc-100 shadow-sm transition-transform ${m.enabled ? 'translate-x-4' : 'translate-x-0'}`}
+                          />
+                        </button>
+                        <button
+                          className="btn h-8 px-3.5 text-[13px]"
+                          disabled={testingId === m.id}
+                          onClick={() => test.mutate(m.id)}
+                        >
+                          {testingId === m.id ? 'Testing…' : 'Test'}
+                        </button>
+                        <button
+                          className="btn h-8 px-3.5 text-[13px]"
+                          onClick={() => {
+                            setEditing(m);
+                            setAddMode('manual');
+                          }}
+                        >
+                          Edit
+                        </button>
+                        {m.apiFormat === 'openai_compatible' && (
+                          <button className="btn h-8 px-3.5 text-[13px]" onClick={() => setRulesModel(m)}>
+                            Rules
+                          </button>
+                        )}
+                        <button
+                          className="btn btn-danger h-8 px-3.5 text-[13px]"
+                          onClick={() =>
+                            confirm('Delete this model? It will also be removed from mappings.') &&
+                            del.mutate(m.id)
+                          }
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[13px]">
+                      <span className="font-mono text-zinc-400">{m.upstreamModelId}</span>
+                      <span className="text-zinc-600">·</span>
+                      <span className="text-zinc-400">{m.providerConnectionName}</span>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${m.enabled ? 'bg-emerald-950 text-emerald-400' : 'bg-zinc-800 text-zinc-400'}`}
+                      >
+                        {m.enabled && (
+                          <span className="relative inline-block h-1.5 w-1.5 rounded-full bg-emerald-400">
+                            <span className="absolute -inset-1 rounded-full border border-emerald-400 opacity-50 animate-[pulse-ring_2s_ease-out_infinite]" />
+                          </span>
+                        )}
+                        {m.enabled ? 'Enabled' : 'Disabled'}
+                      </span>
+                      {m.latestTestStatus && (
+                        <span
+                          className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${m.latestTestStatus === 'healthy' ? 'bg-emerald-950 text-emerald-400' : 'bg-red-950 text-red-400'}`}
+                        >
+                          {m.latestTestStatus === 'healthy' ? 'Healthy' : 'Unhealthy'}
+                        </span>
+                      )}
+                      {m.cooldownUntil && new Date(m.cooldownUntil) > new Date() && (
+                        <span className="rounded-full bg-amber-950 px-2.5 py-0.5 text-xs font-medium text-amber-400">
+                          Cooling down until {new Date(m.cooldownUntil).toLocaleTimeString()}
+                        </span>
+                      )}
+                      <span
+                        className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${m.apiFormat === 'anthropic_compatible' ? 'bg-indigo-950 text-indigo-300' : 'bg-sky-950 text-sky-300'}`}
+                      >
+                        {m.apiFormat === 'anthropic_compatible' ? 'Anthropic' : 'OpenAI'}
+                      </span>
+                      {m.supportsReasoning === 'yes' && (
+                        <span className="rounded-full border border-zinc-700 px-2.5 py-0.5 text-xs text-zinc-400">
+                          Reasoning
+                        </span>
+                      )}
+                      {m.supportsImages === 'yes' && (
+                        <span className="rounded-full border border-zinc-700 px-2.5 py-0.5 text-xs text-zinc-400">
+                          Images
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid border-t border-zinc-800 sm:grid-cols-3">
+                    <div className="border-b border-zinc-800 px-6 py-4 sm:border-r sm:border-b-0">
+                      <p className="text-xs text-zinc-500">Input tokens</p>
+                      <p className="mt-1 text-[22px] font-medium">
+                        {modelUsage ? formatTokens(modelUsage.inputTokens) : '—'}
+                      </p>
+                    </div>
+                    <div className="border-b border-zinc-800 px-6 py-4 sm:border-r sm:border-b-0">
+                      <p className="text-xs text-zinc-500">Output tokens</p>
+                      <p className="mt-1 text-[22px] font-medium">
+                        {modelUsage ? formatTokens(modelUsage.outputTokens) : '—'}
+                      </p>
+                    </div>
+                    <div className="px-6 py-4">
+                      <p className="text-xs text-zinc-500">Requests</p>
+                      <p className="mt-1 text-[22px] font-medium">
+                        {modelUsage ? Number(modelUsage.requestCount).toLocaleString() : 0}
+                      </p>
+                    </div>
+                  </div>
+                  {m.latestError && (
+                    <details className="border-t border-red-950 bg-red-950/20 px-5 py-3 text-sm text-red-200">
+                      <summary className="cursor-pointer list-none">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="shrink-0 font-medium">Last error</span>
+                          {m.latestErrorAt && (
+                            <span className="shrink-0 text-xs text-red-300/70">
+                              {new Date(m.latestErrorAt).toLocaleString()}
+                            </span>
+                          )}
+                          <span className="truncate text-red-200/90">
+                            {latestErrorMessage(m.latestError)}
+                          </span>
+                        </div>
+                      </summary>
+                      <pre className="mt-3 max-h-48 overflow-auto rounded-lg bg-zinc-950 p-3 text-xs text-red-100">
+                        {JSON.stringify(m.latestError, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        )}
-      </div>
+        );
+      })()}
       {notice && (
         <div
           className={`fixed top-5 left-1/2 z-50 w-[min(30rem,calc(100%-2rem))] -translate-x-1/2 animate-[toast-drop_220ms_ease-out] rounded-xl border px-4 py-3 shadow-xl ${notice.tone === 'success' ? 'border-emerald-700 bg-emerald-950 text-emerald-100' : 'border-red-700 bg-red-950 text-red-100'}`}
