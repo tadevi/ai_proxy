@@ -191,121 +191,122 @@ export function Models() {
           const modelUsage = usageByModel.get(m.gatewayModelId);
           return (
             <div className="card overflow-hidden p-0" key={m.id}>
-              <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-start">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-lg font-semibold">{m.displayName}</h2>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs ${m.enabled ? 'bg-emerald-950 text-emerald-300' : 'bg-zinc-800 text-zinc-400'}`}
+              <div className="p-5">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <h2 className="font-mono text-lg font-medium">{m.displayName}</h2>
+                    <span className="font-mono text-[13px] text-zinc-500">(id: {m.gatewayModelId})</span>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <button
+                      aria-checked={m.enabled}
+                      aria-label={`${m.enabled ? 'Disable' : 'Enable'} ${m.displayName}`}
+                      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 ${m.enabled ? 'bg-emerald-500/80' : 'bg-zinc-700'}`}
+                      disabled={toggleEnabled.isPending}
+                      onClick={() => toggleEnabled.mutate({ id: m.id, enabled: !m.enabled })}
+                      role="switch"
+                      title={m.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}
+                      type="button"
                     >
-                      {m.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                    {m.latestTestStatus && (
-                      <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300">
-                        Health: {m.latestTestStatus}
-                      </span>
-                    )}
-                    {m.cooldownUntil && new Date(m.cooldownUntil) > new Date() && (
-                      <span className="rounded-full bg-amber-950 px-2 py-0.5 text-xs text-amber-300">
-                        Cooling down until {new Date(m.cooldownUntil).toLocaleTimeString()}
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-1 truncate font-mono text-xs text-indigo-300">
-                    {m.gatewayModelId}
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                    <span className="text-zinc-400">{m.providerConnectionName}</span>
-                    <span className="rounded-md border border-indigo-900/80 bg-indigo-950/60 px-1.5 py-0.5 text-xs font-medium text-indigo-200">
-                      {m.apiFormat === 'anthropic_compatible' ? 'Anthropic' : 'OpenAI'}
-                    </span>
-                    <span className="font-mono text-zinc-400">{m.upstreamModelId}</span>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {(
-                      [
-                        ['Images', m.supportsImages],
-                        ['Reasoning', m.supportsReasoning],
-                      ] as const
-                    ).map(([label, value]) => (
                       <span
-                        className={`rounded-md border px-2 py-1 text-xs font-medium ${value === 'yes' ? 'border-emerald-900/80 bg-emerald-950/60 text-emerald-200' : 'border-zinc-700 bg-zinc-800/70 text-zinc-400'}`}
-                        key={label}
-                      >
-                        {label}: {value}
-                      </span>
-                    ))}
+                        className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-zinc-100 shadow-sm transition-transform ${m.enabled ? 'translate-x-4' : 'translate-x-0'}`}
+                      />
+                    </button>
+                    <button
+                      className="btn h-8 px-3.5 text-[13px]"
+                      disabled={testingId === m.id}
+                      onClick={() => test.mutate(m.id)}
+                    >
+                      {testingId === m.id ? 'Testing…' : 'Test'}
+                    </button>
+                    <button
+                      className="btn h-8 px-3.5 text-[13px]"
+                      onClick={() => {
+                        setEditing(m);
+                        setShow(true);
+                      }}
+                    >
+                      Edit
+                    </button>
+                    {m.apiFormat === 'openai_compatible' && (
+                      <button className="btn h-8 px-3.5 text-[13px]" onClick={() => setRulesModel(m)}>
+                        Rules
+                      </button>
+                    )}
+                    <button
+                      className="btn btn-danger h-8 px-3.5 text-[13px]"
+                      onClick={() =>
+                        confirm('Delete this model? It will also be removed from mappings.') &&
+                        del.mutate(m.id)
+                      }
+                    >
+                      Delete
+                    </button>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                  <button
-                    aria-checked={m.enabled}
-                    aria-label={`${m.enabled ? 'Disable' : 'Enable'} ${m.displayName}`}
-                    className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 ${m.enabled ? 'bg-emerald-500/80' : 'bg-zinc-700'}`}
-                    disabled={toggleEnabled.isPending}
-                    onClick={() => toggleEnabled.mutate({ id: m.id, enabled: !m.enabled })}
-                    role="switch"
-                    title={m.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}
-                    type="button"
+
+                <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[13px]">
+                  <span className="font-mono text-zinc-400">{m.upstreamModelId}</span>
+                  <span className="text-zinc-600">·</span>
+                  <span className="text-zinc-400">{m.providerConnectionName}</span>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${m.enabled ? 'bg-emerald-950 text-emerald-400' : 'bg-zinc-800 text-zinc-400'}`}
                   >
+                    {m.enabled && (
+                      <span className="relative inline-block h-1.5 w-1.5 rounded-full bg-emerald-400">
+                        <span className="absolute -inset-1 rounded-full border border-emerald-400 opacity-50 animate-[pulse-ring_2s_ease-out_infinite]" />
+                      </span>
+                    )}
+                    {m.enabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                  {m.latestTestStatus && (
                     <span
-                      className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-zinc-100 shadow-sm transition-transform ${m.enabled ? 'translate-x-4' : 'translate-x-0'}`}
-                    />
-                  </button>
-                  <button
-                    className="btn"
-                    disabled={testingId === m.id}
-                    onClick={() => test.mutate(m.id)}
-                  >
-                    {testingId === m.id ? 'Testing…' : 'Test'}
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => {
-                      setEditing(m);
-                      setShow(true);
-                    }}
-                  >
-                    Edit
-                  </button>
-                  {m.apiFormat === 'openai_compatible' && (
-                    <button className="btn" onClick={() => setRulesModel(m)}>
-                      Rules
-                    </button>
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${m.latestTestStatus === 'pass' ? 'bg-emerald-950 text-emerald-400' : 'bg-red-950 text-red-400'}`}
+                    >
+                      {m.latestTestStatus === 'pass' ? 'Healthy' : 'Unhealthy'}
+                    </span>
                   )}
-                  <button
-                    className="btn btn-danger"
-                    onClick={() =>
-                      confirm('Delete this model? It will also be removed from mappings.') &&
-                      del.mutate(m.id)
-                    }
+                  {m.cooldownUntil && new Date(m.cooldownUntil) > new Date() && (
+                    <span className="rounded-full bg-amber-950 px-2.5 py-0.5 text-xs font-medium text-amber-400">
+                      Cooling down until {new Date(m.cooldownUntil).toLocaleTimeString()}
+                    </span>
+                  )}
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${m.apiFormat === 'anthropic_compatible' ? 'bg-indigo-950 text-indigo-300' : 'bg-sky-950 text-sky-300'}`}
                   >
-                    Delete
-                  </button>
+                    {m.apiFormat === 'anthropic_compatible' ? 'Anthropic' : 'OpenAI'}
+                  </span>
+                  {m.supportsReasoning === 'yes' && (
+                    <span className="rounded-full border border-zinc-700 px-2.5 py-0.5 text-xs text-zinc-400">
+                      Reasoning
+                    </span>
+                  )}
+                  {m.supportsImages === 'yes' && (
+                    <span className="rounded-full border border-zinc-700 px-2.5 py-0.5 text-xs text-zinc-400">
+                      Images
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="grid border-t border-zinc-800 sm:grid-cols-3">
-                <div className="border-b border-zinc-800 p-4 sm:border-r sm:border-b-0">
-                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                    Input tokens
-                  </p>
-                  <p className="mt-1 text-lg font-medium">
+                <div className="border-b border-zinc-800 px-6 py-4 sm:border-r sm:border-b-0">
+                  <p className="text-xs text-zinc-500">Input tokens</p>
+                  <p className="mt-1 text-[22px] font-medium">
                     {modelUsage ? formatTokens(modelUsage.inputTokens) : '—'}
                   </p>
                 </div>
-                <div className="border-b border-zinc-800 p-4 sm:border-r sm:border-b-0">
-                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                    Output tokens
-                  </p>
-                  <p className="mt-1 text-lg font-medium">
+                <div className="border-b border-zinc-800 px-6 py-4 sm:border-r sm:border-b-0">
+                  <p className="text-xs text-zinc-500">Output tokens</p>
+                  <p className="mt-1 text-[22px] font-medium">
                     {modelUsage ? formatTokens(modelUsage.outputTokens) : '—'}
                   </p>
                 </div>
-                <div className="p-4">
-                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                    Requests
-                  </p>
-                  <p className="mt-1 text-lg font-medium">
+                <div className="px-6 py-4">
+                  <p className="text-xs text-zinc-500">Requests</p>
+                  <p className="mt-1 text-[22px] font-medium">
                     {modelUsage ? Number(modelUsage.requestCount).toLocaleString() : 0}
                   </p>
                 </div>
