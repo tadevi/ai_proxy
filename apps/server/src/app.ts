@@ -3,7 +3,7 @@ import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import staticPlugin from '@fastify/static';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { ZodError } from 'zod';
 import { createDb } from '@gateway/db';
 import type { Config } from './config.js';
@@ -95,7 +95,7 @@ export async function buildApp(config: Config) {
     });
   });
   app.addHook('onClose', async () => pool.end());
-  const webRoot = join(process.cwd(), 'apps/web/dist');
+  const webRoot = findWebRoot();
   if (existsSync(webRoot)) {
     await app.register(staticPlugin, { root: webRoot, wildcard: false });
     app.setNotFoundHandler((req, reply) =>
@@ -105,6 +105,17 @@ export async function buildApp(config: Config) {
     );
   }
   return app;
+}
+
+function findWebRoot() {
+  let directory = process.cwd();
+  while (true) {
+    const candidate = join(directory, 'apps/web/dist');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(directory);
+    if (parent === directory) return candidate;
+    directory = parent;
+  }
 }
 
 function databaseTls(config: Config) {
