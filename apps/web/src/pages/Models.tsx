@@ -82,6 +82,8 @@ export function Models() {
   const [addMode, setAddMode] = useState<'preset' | 'manual' | null>(null);
   const [linkPreset, setLinkPreset] = useState<Preset | null>(null);
   const [presetSearch, setPresetSearch] = useState('');
+  const [viewMode, setViewMode] = useState<'detail' | 'list'>('detail');
+  const [filterConnection, setFilterConnection] = useState<string>('');
   const [rulesModel, setRulesModel] = useState<Model | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
@@ -186,6 +188,36 @@ export function Models() {
         >
           Add model
         </button>
+      </div>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <select
+          className="input w-auto"
+          value={filterConnection}
+          onChange={(event) => setFilterConnection(event.target.value)}
+        >
+          <option value="">All connections</option>
+          {connections.data?.map((c) => (
+            <option value={c.displayName} key={c.id}>
+              {c.displayName}
+            </option>
+          ))}
+        </select>
+        <div className="ml-auto flex rounded-lg border border-zinc-700">
+          <button
+            className={`rounded-l-md px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === 'detail' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'}`}
+            onClick={() => setViewMode('detail')}
+            title="Detail view"
+          >
+            Detail
+          </button>
+          <button
+            className={`rounded-r-md px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === 'list' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'}`}
+            onClick={() => setViewMode('list')}
+            title="List view"
+          >
+            List
+          </button>
+        </div>
       </div>
       {addMode === 'preset' && (
         <div
@@ -427,9 +459,9 @@ export function Models() {
                   </span>
                   {m.latestTestStatus && (
                     <span
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${m.latestTestStatus === 'pass' ? 'bg-emerald-950 text-emerald-400' : 'bg-red-950 text-red-400'}`}
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${m.latestTestStatus === 'healthy' ? 'bg-emerald-950 text-emerald-400' : 'bg-red-950 text-red-400'}`}
                     >
-                      {m.latestTestStatus === 'pass' ? 'Healthy' : 'Unhealthy'}
+                      {m.latestTestStatus === 'healthy' ? 'Healthy' : 'Unhealthy'}
                     </span>
                   )}
                   {m.cooldownUntil && new Date(m.cooldownUntil) > new Date() && (
