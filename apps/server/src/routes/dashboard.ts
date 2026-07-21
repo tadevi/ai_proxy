@@ -405,7 +405,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
     if (!preset) return reply.code(404).send({ error: 'Preset not found' });
     const apiFormat = input.apiFormat ?? preset.apiFormat;
     try {
-      const [binding] = await app.db
+      const [inserted] = await app.db
         .insert(modelBindings)
         .values({
           userId: req.dashboardUser!.id,
@@ -414,13 +414,25 @@ export async function dashboardRoutes(app: FastifyInstance) {
           apiFormat,
           providerBasePath: input.providerBasePath,
         })
-        .returning(safeBinding);
+        .returning({
+          id: modelBindings.id,
+          presetId: modelBindings.presetId,
+          connectionId: modelBindings.connectionId,
+          apiFormat: modelBindings.apiFormat,
+          providerBasePath: modelBindings.providerBasePath,
+          createdAt: modelBindings.createdAt,
+          updatedAt: modelBindings.updatedAt,
+        });
+      // presetDisplayName isn't a model_bindings column — RETURNING can't pull it from
+      // the joined modelPresets table on a plain insert, so attach it from the preset
+      // already looked up above instead of reusing the GET handler's joined projection.
+      const binding = { ...inserted!, presetDisplayName: preset.displayName };
       // Auto-create upstream_models for all enabled tokens on this connection
       await createUpstreamModelsForBinding(
         app,
         req.dashboardUser!.id,
         connectionId,
-        binding!.id,
+        binding.id,
         preset,
         apiFormat,
         input.providerBasePath,
