@@ -61,6 +61,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function requestContainsImages(request: AnthropicRequest) {
+  return request.messages.some(
+    (message) =>
+      Array.isArray(message.content) && message.content.some((block) => block.type === 'image'),
+  );
+}
+
+function isImageCapabilityFailure(failure: UpstreamFailure) {
+  if (failure.status !== 404) return false;
+  const detail = JSON.stringify(failure.providerError ?? {}).toLowerCase();
+  return detail.includes('image') && /(no endpoints?|not support|unsupported)/.test(detail);
+}
+
 const secretField = /api[-_]?key|authorization|token|secret|password|cookie/i;
 
 function redactErrorBody(value: unknown, field = '', depth = 0): unknown {
@@ -203,9 +216,7 @@ async function resolve(
   incoming: string,
   request: AnthropicRequest,
 ): Promise<{ attempts: Attempt[]; skipped: object[] }> {
-  const hasImages = request.messages.some(
-    (m) => Array.isArray(m.content) && m.content.some((b) => b.type === 'image'),
-  );
+  const hasImages = requestContainsImages(request);
   const [mapping] = await app.db
     .select({ id: mappings.id })
     .from(mappings)
@@ -434,6 +445,22 @@ async function handleMessage(
         'upstream request failed',
       );
       await setModelError(app, attempt.resolved.model.id, failure);
+      const imageCapabilityFailure =
+        requestContainsImages(request) && isImageCapabilityFailure(failure);
+      if (imageCapabilityFailure) {
+        await app.db
+          .update(upstreamModels)
+          .set({ supportsImages: 'no', updatedAt: new Date() })
+          .where(eq(upstreamModels.id, attempt.resolved.model.id));
+        skipped.push({
+          gatewayModelId: attempt.resolved.model.gatewayModelId,
+          reason: 'images_unsupported_by_upstream',
+        });
+        app.log.warn(
+          { requestId, resolvedGatewayModel: attempt.resolved.model.gatewayModelId },
+          'model disabled for image requests after upstream capability rejection',
+        );
+      }
       if (cooldownStatuses.has(failure.status)) {
         const cooldownUntil = new Date(Date.now() + cooldownDurationMs);
         await app.db
@@ -450,7 +477,9 @@ async function handleMessage(
         );
       }
       if (
-        (!failure.fallbackable && !cooldownStatuses.has(failure.status)) ||
+        (!failure.fallbackable &&
+          !cooldownStatuses.has(failure.status) &&
+          !imageCapabilityFailure) ||
         index === attempts.length - 1
       )
         break;

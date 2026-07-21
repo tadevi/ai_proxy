@@ -157,12 +157,33 @@ export function Models() {
         </button>
       </div>
       {show && (
-        <ModelForm
-          initial={editing}
-          error={save.error?.message}
-          onCancel={() => setShow(false)}
-          onSave={(v) => save.mutate(v)}
-        />
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setShow(false);
+              setEditing(null);
+            }
+          }}
+          role="presentation"
+        >
+          <section
+            aria-labelledby="model-dialog-title"
+            aria-modal="true"
+            className="w-full max-w-3xl"
+            role="dialog"
+          >
+            <ModelForm
+              initial={editing}
+              error={save.error?.message}
+              onCancel={() => {
+                setShow(false);
+                setEditing(null);
+              }}
+              onSave={(v) => save.mutate(v)}
+            />
+          </section>
+        </div>
       )}
       {rulesModel && <ThinkingRules model={rulesModel} onClose={() => setRulesModel(null)} />}
       <div className="grid gap-4">
@@ -450,8 +471,13 @@ function ModelForm({
   });
   const apiFormat = watch('apiFormat');
   return (
-    <form className="card mb-6 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit(onSave)}>
-      <h2 className="md:col-span-2 text-lg font-medium">{initial ? 'Edit model' : 'Add model'}</h2>
+    <form
+      className="card grid max-h-[calc(100vh-2rem)] gap-4 overflow-y-auto md:grid-cols-2"
+      onSubmit={handleSubmit(onSave)}
+    >
+      <h2 className="md:col-span-2 text-lg font-medium" id="model-dialog-title">
+        {initial ? 'Edit model' : 'Add model'}
+      </h2>
       <Field label="Display name">
         <input className="input" {...register('displayName', { required: true })} />
       </Field>
