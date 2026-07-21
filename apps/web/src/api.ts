@@ -46,6 +46,7 @@ export type Route = {
   enabled: boolean;
   position: number;
   displayName: string;
+  providerConnectionName: string;
   gatewayModelId: string;
   latestTestStatus?: string;
 };

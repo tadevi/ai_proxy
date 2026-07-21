@@ -321,12 +321,17 @@ export async function dashboardRoutes(app: FastifyInstance) {
         enabled: mappingRoutes.enabled,
         position: mappingRoutes.position,
         displayName: upstreamModels.displayName,
+        providerConnectionName: providerConnections.displayName,
         gatewayModelId: upstreamModels.gatewayModelId,
         latestTestStatus: upstreamModels.latestTestStatus,
       })
       .from(mappings)
       .leftJoin(mappingRoutes, eq(mappingRoutes.mappingId, mappings.id))
       .leftJoin(upstreamModels, eq(upstreamModels.id, mappingRoutes.upstreamModelId))
+      .leftJoin(
+        providerConnections,
+        eq(providerConnections.id, upstreamModels.providerConnectionId),
+      )
       .where(eq(mappings.userId, req.dashboardUser!.id))
       .orderBy(asc(mappingRoutes.position));
     return aliases.map((alias) => ({

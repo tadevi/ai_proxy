@@ -82,6 +82,7 @@ function MappingCard({
         enabled: true,
         position: mapping.routes.length,
         displayName: m.displayName,
+        providerConnectionName: m.providerConnectionName,
         gatewayModelId: m.gatewayModelId,
         latestTestStatus: m.latestTestStatus,
       },
@@ -128,7 +129,7 @@ function MappingCard({
             .filter((m) => !mapping.routes.some((r) => r.modelId === m.id))
             .map((m) => (
               <option value={m.id} key={m.id}>
-                {m.displayName}
+                {m.displayName} — {m.providerConnectionName}
               </option>
             ))}
         </select>
@@ -169,7 +170,10 @@ function SortableRoute({
           ⠿
         </button>
         <span className="text-sm text-zinc-500">{index + 1}</span>
-        <span className="min-w-0 flex-1 truncate text-sm">{route.displayName}</span>
+        <span className="min-w-0 flex-1 truncate text-sm">
+          {route.displayName}
+          <span className="text-zinc-500"> — {route.providerConnectionName}</span>
+        </span>
         <button
           aria-checked={route.enabled}
           aria-label={`${route.enabled ? 'Disable' : 'Enable'} ${route.displayName}`}
