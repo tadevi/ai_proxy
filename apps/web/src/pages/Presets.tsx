@@ -59,14 +59,16 @@ export function Presets() {
       presetId,
       providerConnectionId,
       displayName,
+      providerBasePath,
     }: {
       presetId: string;
       providerConnectionId: string;
       displayName?: string;
+      providerBasePath?: string;
     }) =>
       api(`/api/presets/${presetId}/link`, {
         method: 'POST',
-        body: JSON.stringify({ providerConnectionId, displayName }),
+        body: JSON.stringify({ providerConnectionId, displayName, providerBasePath }),
       }),
     onSuccess: () => {
       setLinkPreset(null);
@@ -120,8 +122,8 @@ export function Presets() {
               preset={linkPreset}
               error={link.error?.message}
               onCancel={() => setLinkPreset(null)}
-              onLink={(connectionId, displayName) =>
-                link.mutate({ presetId: linkPreset.id, providerConnectionId: connectionId, displayName })
+              onLink={(connectionId, displayName, providerBasePath) =>
+                link.mutate({ presetId: linkPreset.id, providerConnectionId: connectionId, displayName, providerBasePath })
               }
             />
           </section>
@@ -219,19 +221,24 @@ function LinkForm({
   preset: Preset;
   error?: string;
   onCancel: () => void;
-  onLink: (connectionId: string, displayName?: string) => void;
+  onLink: (connectionId: string, displayName?: string, providerBasePath?: string) => void;
 }) {
   const { register, handleSubmit } = useForm<{
     providerConnectionId: string;
     displayName: string;
+    providerBasePath: string;
   }>({
-    defaultValues: { providerConnectionId: '', displayName: preset.displayName },
+    defaultValues: { providerConnectionId: '', displayName: preset.displayName, providerBasePath: '' },
   });
   return (
     <form
       className="mt-4 grid gap-4"
       onSubmit={handleSubmit((v) =>
-        onLink(v.providerConnectionId, v.displayName !== preset.displayName ? v.displayName : undefined),
+        onLink(
+          v.providerConnectionId,
+          v.displayName !== preset.displayName ? v.displayName : undefined,
+          v.providerBasePath || undefined,
+        ),
       )}
     >
       <label>
@@ -248,6 +255,14 @@ function LinkForm({
             </option>
           ))}
         </select>
+      </label>
+      <label>
+        <span className="label">Provider base path</span>
+        <input
+          className="input"
+          placeholder="/apps/anthropic or /compatible-mode/v1"
+          {...register('providerBasePath')}
+        />
       </label>
       {error && <p className="text-red-400">{error}</p>}
       <div className="flex gap-2">

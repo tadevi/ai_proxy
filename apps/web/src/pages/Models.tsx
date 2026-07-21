@@ -126,14 +126,16 @@ export function Models() {
       presetId,
       providerConnectionId,
       displayName,
+      providerBasePath,
     }: {
       presetId: string;
       providerConnectionId: string;
       displayName?: string;
+      providerBasePath?: string;
     }) =>
       api(`/api/presets/${presetId}/link`, {
         method: 'POST',
-        body: JSON.stringify({ providerConnectionId, displayName }),
+        body: JSON.stringify({ providerConnectionId, displayName, providerBasePath }),
       }),
     onSuccess: () => {
       setLinkPreset(null);
@@ -339,11 +341,12 @@ export function Models() {
                     setAddMode(null);
                     setLinkPreset(null);
                   }}
-                  onLink={(connectionId, displayName) =>
+                  onLink={(connectionId, displayName, providerBasePath) =>
                     link.mutate({
                       presetId: linkPreset.id,
                       providerConnectionId: connectionId,
                       displayName,
+                      providerBasePath,
                     })
                   }
                 />
@@ -924,13 +927,14 @@ function LinkPresetForm({
   preset: Preset;
   error?: string;
   onCancel: () => void;
-  onLink: (connectionId: string, displayName?: string) => void;
+  onLink: (connectionId: string, displayName?: string, providerBasePath?: string) => void;
 }) {
   const { register, handleSubmit } = useForm<{
     providerConnectionId: string;
     displayName: string;
+    providerBasePath: string;
   }>({
-    defaultValues: { providerConnectionId: '', displayName: preset.displayName },
+    defaultValues: { providerConnectionId: '', displayName: preset.displayName, providerBasePath: '' },
   });
   return (
     <form
@@ -939,6 +943,7 @@ function LinkPresetForm({
         onLink(
           v.providerConnectionId,
           v.displayName !== preset.displayName ? v.displayName : undefined,
+          v.providerBasePath || undefined,
         ),
       )}
     >
@@ -956,6 +961,14 @@ function LinkPresetForm({
             </option>
           ))}
         </select>
+      </label>
+      <label>
+        <span className="label">Provider base path</span>
+        <input
+          className="input"
+          placeholder="/apps/anthropic or /compatible-mode/v1"
+          {...register('providerBasePath')}
+        />
       </label>
       {error && <p className="text-red-400">{error}</p>}
       <div className="flex gap-2">

@@ -396,6 +396,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
         upstreamModelId: preset.upstreamModelId,
         providerConnectionId: input.providerConnectionId,
         apiFormat: preset.apiFormat,
+        providerBasePath: input.providerBasePath,
         supportsImages: preset.supportsImages as 'yes' | 'no',
         supportsReasoning: preset.supportsReasoning as 'yes' | 'no',
         maxOutputTokens: preset.maxOutputTokens,

@@ -56,6 +56,7 @@ export const presetInputSchema = z.object({
 export const presetLinkSchema = z.object({
   providerConnectionId: z.string().uuid(),
   displayName: z.string().trim().min(1).max(120).optional(),
+  providerBasePath: relativePathSchema.or(z.literal('')).default(''),
 });
 export const gatewayKeyInputSchema = z.object({ name: z.string().trim().min(1).max(100) });
 export const mappingUpdateSchema = z.object({
