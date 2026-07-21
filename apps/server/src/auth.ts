@@ -1,7 +1,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt, or } from 'drizzle-orm';
 import { gatewayKeys, sessions, users } from '@gateway/db';
 import { hashSecret } from './security.js';
+
+const activityWriteIntervalMs = 5 * 60_000;
 
 export async function dashboardAuth(
   app: FastifyInstance,
@@ -11,7 +13,12 @@ export async function dashboardAuth(
   const token = req.cookies.gateway_session;
   if (!token) return reply.code(401).send({ error: 'Authentication required' });
   const rows = await app.db
-    .select({ id: users.id, username: users.username, sessionId: sessions.id })
+    .select({
+      id: users.id,
+      username: users.username,
+      sessionId: sessions.id,
+      lastUsedAt: sessions.lastUsedAt,
+    })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
     .where(and(eq(sessions.tokenHash, hashSecret(token)), gt(sessions.expiresAt, new Date())))
@@ -19,10 +26,12 @@ export async function dashboardAuth(
   const row = rows[0];
   if (!row) return reply.code(401).send({ error: 'Session expired' });
   req.dashboardUser = { id: row.id, username: row.username };
-  await app.db
-    .update(sessions)
-    .set({ lastUsedAt: new Date() })
-    .where(eq(sessions.id, row.sessionId));
+  const activeSince = new Date(Date.now() - activityWriteIntervalMs);
+  if (row.lastUsedAt < activeSince)
+    await app.db
+      .update(sessions)
+      .set({ lastUsedAt: new Date() })
+      .where(and(eq(sessions.id, row.sessionId), lt(sessions.lastUsedAt, activeSince)));
 }
 export async function gatewayAuth(app: FastifyInstance, req: FastifyRequest, reply: FastifyReply) {
   const bearer = req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
@@ -39,7 +48,7 @@ export async function gatewayAuth(app: FastifyInstance, req: FastifyRequest, rep
       error: { type: 'authentication_error', message: 'Valid gateway API key required' },
     });
   const rows = await app.db
-    .select({ id: gatewayKeys.id, userId: gatewayKeys.userId })
+    .select({ id: gatewayKeys.id, userId: gatewayKeys.userId, lastUsedAt: gatewayKeys.lastUsedAt })
     .from(gatewayKeys)
     .where(and(eq(gatewayKeys.keyHash, hashSecret(token)), isNull(gatewayKeys.revokedAt)))
     .limit(1);
@@ -50,8 +59,15 @@ export async function gatewayAuth(app: FastifyInstance, req: FastifyRequest, rep
       error: { type: 'authentication_error', message: 'Invalid or revoked gateway API key' },
     });
   req.gatewayUserId = row.userId;
-  await app.db
-    .update(gatewayKeys)
-    .set({ lastUsedAt: new Date() })
-    .where(eq(gatewayKeys.id, row.id));
+  const activeSince = new Date(Date.now() - activityWriteIntervalMs);
+  if (!row.lastUsedAt || row.lastUsedAt < activeSince)
+    await app.db
+      .update(gatewayKeys)
+      .set({ lastUsedAt: new Date() })
+      .where(
+        and(
+          eq(gatewayKeys.id, row.id),
+          or(isNull(gatewayKeys.lastUsedAt), lt(gatewayKeys.lastUsedAt, activeSince)),
+        ),
+      );
 }

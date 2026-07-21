@@ -58,7 +58,7 @@ function latestErrorMessage(error?: Record<string, unknown> | null) {
 
 type ModelUsage = {
   gatewayModelId: string;
-  requestCount: number;
+  requestCount: string;
   inputTokens: string;
   outputTokens: string;
 };
@@ -214,10 +214,28 @@ export function Models() {
                   <p className="mt-1 truncate font-mono text-xs text-indigo-300">
                     {m.gatewayModelId}
                   </p>
-                  <p className="muted mt-2 truncate">
-                    {m.providerConnectionName} · {m.apiFormat.replace('_', ' ')} ·{' '}
-                    {m.upstreamModelId}
-                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                    <span className="text-zinc-400">{m.providerConnectionName}</span>
+                    <span className="rounded-md border border-indigo-900/80 bg-indigo-950/60 px-1.5 py-0.5 text-xs font-medium text-indigo-200">
+                      {m.apiFormat === 'anthropic_compatible' ? 'Anthropic' : 'OpenAI'}
+                    </span>
+                    <span className="font-mono text-zinc-400">{m.upstreamModelId}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(
+                      [
+                        ['Images', m.supportsImages],
+                        ['Reasoning', m.supportsReasoning],
+                      ] as const
+                    ).map(([label, value]) => (
+                      <span
+                        className={`rounded-md border px-2 py-1 text-xs font-medium ${value === 'yes' ? 'border-emerald-900/80 bg-emerald-950/60 text-emerald-200' : 'border-zinc-700 bg-zinc-800/70 text-zinc-400'}`}
+                        key={label}
+                      >
+                        {label}: {value}
+                      </span>
+                    ))}
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                   <button
@@ -287,9 +305,8 @@ export function Models() {
                   <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
                     Requests
                   </p>
-                  <p className="mt-1 text-lg font-medium">{modelUsage?.requestCount ?? 0}</p>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    Images: {m.supportsImages} · Reasoning: {m.supportsReasoning}
+                  <p className="mt-1 text-lg font-medium">
+                    {modelUsage ? Number(modelUsage.requestCount).toLocaleString() : 0}
                   </p>
                 </div>
               </div>

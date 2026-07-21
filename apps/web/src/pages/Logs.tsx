@@ -32,14 +32,13 @@ type Log = {
 };
 type LogPage = {
   items: Log[];
-  page: number;
   pageSize: number;
   total: number;
-  totalPages: number;
+  nextCursor: string | null;
 };
 export function Logs() {
   const [selectedError, setSelectedError] = useState<Log | null>(null);
-  const [page, setPage] = useState(1);
+  const [cursorHistory, setCursorHistory] = useState<string[]>([]);
   const [filters, setFilters] = useState({
     requestId: '',
     model: '',
@@ -50,9 +49,10 @@ export function Logs() {
   const search = new URLSearchParams(
     Object.entries(filters).filter(([, value]) => value) as Array<[string, string]>,
   );
-  search.set('page', String(page));
+  const cursor = cursorHistory.at(-1);
+  if (cursor) search.set('cursor', cursor);
   const logs = useQuery({
-    queryKey: ['logs', filters, page],
+    queryKey: ['logs', filters, cursor],
     queryFn: () => api<LogPage>(`/api/logs?${search}`),
     refetchInterval: 10000,
   });
@@ -60,7 +60,9 @@ export function Logs() {
     <>
       <div className="mb-6">
         <h1 className="text-2xl font-semibold">Request logs</h1>
-        <p className="muted mt-1">Metadata only; prompts and responses are never stored.</p>
+        <p className="muted mt-1">
+          Request bodies are never stored; sanitized provider error details may be retained.
+        </p>
       </div>
       <div className="card mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <input
@@ -70,7 +72,7 @@ export function Logs() {
           value={filters.requestId}
           onChange={(event) => {
             setFilters({ ...filters, requestId: event.target.value });
-            setPage(1);
+            setCursorHistory([]);
           }}
         />
         <input
@@ -80,7 +82,7 @@ export function Logs() {
           value={filters.model}
           onChange={(event) => {
             setFilters({ ...filters, model: event.target.value });
-            setPage(1);
+            setCursorHistory([]);
           }}
         />
         <select
@@ -89,7 +91,7 @@ export function Logs() {
           value={filters.status}
           onChange={(event) => {
             setFilters({ ...filters, status: event.target.value });
-            setPage(1);
+            setCursorHistory([]);
           }}
         >
           <option value="">All statuses</option>
@@ -107,7 +109,7 @@ export function Logs() {
           value={filters.from}
           onChange={(event) => {
             setFilters({ ...filters, from: event.target.value });
-            setPage(1);
+            setCursorHistory([]);
           }}
         />
         <input
@@ -117,7 +119,7 @@ export function Logs() {
           value={filters.to}
           onChange={(event) => {
             setFilters({ ...filters, to: event.target.value });
-            setPage(1);
+            setCursorHistory([]);
           }}
         />
       </div>
@@ -184,8 +186,8 @@ export function Logs() {
       <div className="mt-4 flex items-center justify-between gap-3 text-sm text-zinc-400">
         <span>
           {logs.data
-            ? `Showing ${logs.data.total ? (logs.data.page - 1) * logs.data.pageSize + 1 : 0}–${Math.min(
-                logs.data.page * logs.data.pageSize,
+            ? `Showing ${logs.data.total ? cursorHistory.length * logs.data.pageSize + 1 : 0}–${Math.min(
+                (cursorHistory.length + 1) * logs.data.pageSize,
                 logs.data.total,
               )} of ${logs.data.total}`
             : 'Loading logs…'}
@@ -193,19 +195,23 @@ export function Logs() {
         <div className="flex items-center gap-2">
           <button
             className="btn"
-            disabled={!logs.data || logs.data.page <= 1}
-            onClick={() => setPage((current) => Math.max(1, current - 1))}
+            disabled={cursorHistory.length === 0}
+            onClick={() => setCursorHistory((history) => history.slice(0, -1))}
             type="button"
           >
             Previous
           </button>
           <span className="whitespace-nowrap">
-            Page {logs.data?.page ?? page} / {logs.data?.totalPages ?? '…'}
+            Page {cursorHistory.length + 1} /{' '}
+            {logs.data ? Math.max(1, Math.ceil(logs.data.total / logs.data.pageSize)) : '…'}
           </span>
           <button
             className="btn"
-            disabled={!logs.data || logs.data.page >= logs.data.totalPages}
-            onClick={() => setPage((current) => current + 1)}
+            disabled={!logs.data?.nextCursor}
+            onClick={() => {
+              if (logs.data?.nextCursor)
+                setCursorHistory((history) => [...history, logs.data.nextCursor!]);
+            }}
             type="button"
           >
             Next

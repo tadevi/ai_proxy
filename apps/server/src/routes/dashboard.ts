@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import bcrypt from 'bcryptjs';
-import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lt, lte, or, sql } from 'drizzle-orm';
 import {
   gatewayKeys,
   mappingRoutes,
   mappings,
+  modelUsageDaily,
   providerConnections,
   requestLogs,
   sessions,
@@ -270,19 +271,14 @@ export async function dashboardRoutes(app: FastifyInstance) {
   app.get('/api/models/usage', async (req) =>
     app.db
       .select({
-        gatewayModelId: requestLogs.resolvedGatewayModel,
-        requestCount: sql<number>`count(*)::int`,
-        inputTokens: sql<string>`coalesce(sum(${requestLogs.inputTokens}), 0)::text`,
-        outputTokens: sql<string>`coalesce(sum(${requestLogs.outputTokens}), 0)::text`,
+        gatewayModelId: modelUsageDaily.gatewayModelId,
+        requestCount: sql<string>`coalesce(sum(${modelUsageDaily.requestCount}), 0)::text`,
+        inputTokens: sql<string>`coalesce(sum(${modelUsageDaily.inputTokens}), 0)::text`,
+        outputTokens: sql<string>`coalesce(sum(${modelUsageDaily.outputTokens}), 0)::text`,
       })
-      .from(requestLogs)
-      .where(
-        and(
-          eq(requestLogs.userId, req.dashboardUser!.id),
-          isNotNull(requestLogs.resolvedGatewayModel),
-        ),
-      )
-      .groupBy(requestLogs.resolvedGatewayModel),
+      .from(modelUsageDaily)
+      .where(eq(modelUsageDaily.userId, req.dashboardUser!.id))
+      .groupBy(modelUsageDaily.gatewayModelId),
   );
   app.post('/api/models', async (req, reply) => {
     const input = modelInputSchema.parse(req.body);
@@ -435,39 +431,52 @@ export async function dashboardRoutes(app: FastifyInstance) {
       status?: string;
       from?: string;
       to?: string;
-      page?: string;
+      cursor?: string;
     };
-    const conditions = [eq(requestLogs.userId, req.dashboardUser!.id)];
-    if (query.requestId) conditions.push(eq(requestLogs.requestId, query.requestId));
-    if (query.model) conditions.push(eq(requestLogs.incomingModel, query.model));
+    const baseConditions = [eq(requestLogs.userId, req.dashboardUser!.id)];
+    if (query.requestId) baseConditions.push(eq(requestLogs.requestId, query.requestId));
+    if (query.model) baseConditions.push(eq(requestLogs.incomingModel, query.model));
     if (query.status && /^\d{3}$/.test(query.status)) {
-      conditions.push(eq(requestLogs.status, Number(query.status)));
+      baseConditions.push(eq(requestLogs.status, Number(query.status)));
     }
     if (query.from && !Number.isNaN(Date.parse(query.from))) {
-      conditions.push(gte(requestLogs.createdAt, new Date(query.from)));
+      baseConditions.push(gte(requestLogs.createdAt, new Date(query.from)));
     }
     if (query.to && !Number.isNaN(Date.parse(query.to))) {
-      conditions.push(lte(requestLogs.createdAt, new Date(query.to)));
+      baseConditions.push(lte(requestLogs.createdAt, new Date(query.to)));
+    }
+    const conditions = [...baseConditions];
+    const cursor = decodeLogCursor(query.cursor);
+    if (cursor) {
+      const cursorCondition = or(
+        lt(requestLogs.createdAt, cursor.createdAt),
+        and(eq(requestLogs.createdAt, cursor.createdAt), lt(requestLogs.id, cursor.id)),
+      );
+      if (cursorCondition) conditions.push(cursorCondition);
     }
     const pageSize = 50;
-    const requestedPage = Number.parseInt(query.page ?? '1', 10);
     const [totalRow] = await app.db
       .select({ total: sql<number>`count(*)::int` })
       .from(requestLogs)
-      .where(and(...conditions));
+      .where(and(...baseConditions));
     const total = totalRow?.total ?? 0;
-    const totalPages = Math.max(1, Math.ceil(total / pageSize));
-    const page = Number.isSafeInteger(requestedPage)
-      ? Math.min(Math.max(requestedPage, 1), totalPages)
-      : 1;
-    const items = await app.db
+    const pageRows = await app.db
       .select()
       .from(requestLogs)
       .where(and(...conditions))
-      .orderBy(desc(requestLogs.createdAt))
-      .limit(pageSize)
-      .offset((page - 1) * pageSize);
-    return { items, page, pageSize, total, totalPages };
+      .orderBy(desc(requestLogs.createdAt), desc(requestLogs.id))
+      .limit(pageSize + 1);
+    const items = pageRows.slice(0, pageSize);
+    const last = items.at(-1);
+    return {
+      items,
+      pageSize,
+      total,
+      nextCursor:
+        pageRows.length > pageSize && last
+          ? encodeLogCursor({ createdAt: last.createdAt, id: last.id })
+          : null,
+    };
   });
   app.get('/api/setup', async (req) => {
     const mapRows = await app.db
@@ -485,6 +494,26 @@ export async function dashboardRoutes(app: FastifyInstance) {
       ),
     };
   });
+}
+function encodeLogCursor(cursor: { createdAt: Date; id: string }) {
+  return Buffer.from(
+    JSON.stringify({ createdAt: cursor.createdAt.toISOString(), id: cursor.id }),
+  ).toString('base64url');
+}
+function decodeLogCursor(value: string | undefined): { createdAt: Date; id: string } | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as {
+      createdAt?: unknown;
+      id?: unknown;
+    };
+    const createdAt = typeof parsed.createdAt === 'string' ? new Date(parsed.createdAt) : undefined;
+    if (!createdAt || Number.isNaN(createdAt.getTime()) || typeof parsed.id !== 'string')
+      return undefined;
+    return { createdAt, id: parsed.id };
+  } catch {
+    return undefined;
+  }
 }
 async function createSession(
   app: FastifyInstance,

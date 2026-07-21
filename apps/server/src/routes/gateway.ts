@@ -1,9 +1,10 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { IncomingMessage } from 'node:http';
-import { and, asc, eq, isNull, lte, or } from 'drizzle-orm';
+import { and, asc, eq, isNull, lte, or, sql } from 'drizzle-orm';
 import {
   mappingRoutes,
   mappings,
+  modelUsageDaily,
   providerConnections,
   requestLogs,
   transformationRules,
@@ -24,6 +25,7 @@ import {
   type StreamUsage,
 } from '@gateway/protocol';
 import { gatewayAuth } from '../auth.js';
+import { logWarn } from '../log.js';
 import { decryptCredential, validateUpstreamUrl } from '../security.js';
 
 type Model = typeof upstreamModels.$inferSelect;
@@ -33,8 +35,7 @@ type Attempt = { resolved: ResolvedModel; routeIndex: number };
 type ProviderErrorDetails = {
   upstreamStatus: number;
   requestId?: string;
-  response?: unknown;
-  responseText?: string;
+  response?: Record<string, unknown>;
 };
 class UpstreamFailure extends Error {
   constructor(
@@ -61,17 +62,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function containsImage(value: unknown, depth = 0): boolean {
-  if (depth > 12 || value === null || typeof value !== 'object') return false;
-  if (Array.isArray(value)) return value.some((item) => containsImage(item, depth + 1));
-  const record = value as Record<string, unknown>;
-  if (record.type === 'image' || record.type === 'image_url' || record.type === 'input_image')
+function containsImageContent(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some((item) => containsImageContent(item));
+  if (!isRecord(value)) return false;
+  if (value.type === 'image' || value.type === 'image_url' || value.type === 'input_image')
     return true;
-  return Object.values(record).some((item) => containsImage(item, depth + 1));
+  // Claude Code can attach screenshots inside a tool result. Do not inspect
+  // arbitrary tool input/metadata: `{ type: 'image' }` may be application data.
+  return value.type === 'tool_result' && containsImageContent(value.content);
 }
 
-function requestContainsImages(request: AnthropicRequest) {
-  return request.messages.some((message) => containsImage(message.content));
+export function requestContainsImages(request: AnthropicRequest) {
+  return request.messages.some((message) => containsImageContent(message.content));
 }
 
 function isImageCapabilityFailure(failure: UpstreamFailure) {
@@ -80,21 +82,25 @@ function isImageCapabilityFailure(failure: UpstreamFailure) {
   return detail.includes('image') && /(no endpoints?|not support|unsupported)/.test(detail);
 }
 
-const secretField = /api[-_]?key|authorization|token|secret|password|cookie/i;
-
-function redactErrorBody(value: unknown, field = '', depth = 0): unknown {
-  if (secretField.test(field)) return '[REDACTED]';
-  if (depth >= 8) return '[TRUNCATED]';
-  if (typeof value === 'string') return value.slice(0, 8_000);
-  if (Array.isArray(value))
-    return value.slice(0, 100).map((item) => redactErrorBody(item, '', depth + 1));
-  if (isRecord(value))
-    return Object.fromEntries(
-      Object.entries(value)
-        .slice(0, 100)
-        .map(([key, item]) => [key, redactErrorBody(item, key, depth + 1)]),
-    );
-  return value;
+export function safeProviderErrorBody(value: unknown): Record<string, unknown> {
+  const root = isRecord(value) ? value : {};
+  const error = isRecord(root.error) ? root.error : root;
+  const allowed = ['code', 'type', 'param', 'message', 'request_id', 'requestId'];
+  const details = Object.fromEntries(
+    allowed
+      .map((key) => [key, error[key]] as const)
+      .filter(([, item]) => typeof item === 'string' || typeof item === 'number'),
+  );
+  for (const key of ['request_id', 'requestId']) {
+    if (
+      details[key] === undefined &&
+      (typeof root[key] === 'string' || typeof root[key] === 'number')
+    )
+      details[key] = root[key];
+  }
+  return Object.keys(details).length
+    ? details
+    : { message: 'Upstream returned an unstructured error.' };
 }
 
 async function readProviderError(response: Response): Promise<ProviderErrorDetails> {
@@ -107,9 +113,18 @@ async function readProviderError(response: Response): Promise<ProviderErrorDetai
   const body = await response.text();
   if (!body) return details;
   try {
-    details.response = redactErrorBody(JSON.parse(body));
+    details.response = safeProviderErrorBody(JSON.parse(body));
   } catch {
-    details.responseText = body.slice(0, 8_000);
+    const ssePayload = body.match(/^\s*(?:event:[^\n]*\n)?data:\s*(.+?)(?:\n\n|$)/s)?.[1];
+    if (ssePayload) {
+      try {
+        details.response = safeProviderErrorBody(JSON.parse(ssePayload));
+        return details;
+      } catch {
+        // Fall through to the generic safe message.
+      }
+    }
+    details.response = { message: 'Upstream returned a non-JSON error response.' };
   }
   return details;
 }
@@ -308,10 +323,7 @@ async function handleMessage(
       path: issue.path.join('.'),
       message: issue.message,
     }));
-    app.log.warn(
-      { requestId, incomingModel, validationErrors },
-      'gateway request validation failed',
-    );
+    logWarn('gateway request validation failed', { requestId, incomingModel, validationErrors });
     await writeLog(app, {
       userId,
       requestId,
@@ -439,17 +451,14 @@ async function handleMessage(
               true,
               'network_error',
             );
-      app.log.warn(
-        {
-          requestId,
-          incomingModel: request.model,
-          resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
-          upstreamStatus: failure.status,
-          errorCategory: failure.category,
-          providerError: failure.providerError,
-        },
-        'upstream request failed',
-      );
+      logWarn('upstream request failed', {
+        requestId,
+        incomingModel: request.model,
+        resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
+        upstreamStatus: failure.status,
+        errorCategory: failure.category,
+        providerError: failure.providerError,
+      });
       await setModelError(app, attempt.resolved.model.id, failure);
       const imageRoutingFailure =
         requestContainsImages(request) && isImageCapabilityFailure(failure);
@@ -458,10 +467,10 @@ async function handleMessage(
           gatewayModelId: attempt.resolved.model.gatewayModelId,
           reason: 'images_unavailable_upstream',
         });
-        app.log.warn(
-          { requestId, resolvedGatewayModel: attempt.resolved.model.gatewayModelId },
-          'upstream has no image-capable endpoint available; trying the next image route',
-        );
+        logWarn('upstream has no image-capable endpoint available; trying the next image route', {
+          requestId,
+          resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
+        });
       }
       if (cooldownStatuses.has(failure.status)) {
         const cooldownUntil = new Date(Date.now() + cooldownDurationMs);
@@ -469,14 +478,11 @@ async function handleMessage(
           .update(upstreamModels)
           .set({ cooldownUntil, updatedAt: new Date() })
           .where(eq(upstreamModels.id, attempt.resolved.model.id));
-        app.log.warn(
-          {
-            requestId,
-            resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
-            cooldownUntil,
-          },
-          'model placed in cooldown after upstream quota or access failure',
-        );
+        logWarn('model placed in cooldown after upstream quota or access failure', {
+          requestId,
+          resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
+          cooldownUntil: cooldownUntil.toISOString(),
+        });
       }
       if (
         (!failure.fallbackable && !cooldownStatuses.has(failure.status) && !imageRoutingFailure) ||
@@ -720,7 +726,29 @@ async function setModelError(app: FastifyInstance, modelId: string, failure: Ups
 }
 
 async function writeLog(app: FastifyInstance, values: typeof requestLogs.$inferInsert) {
-  await app.db.insert(requestLogs).values(values);
+  await app.db.transaction(async (tx) => {
+    await tx.insert(requestLogs).values(values);
+    if (!values.resolvedGatewayModel) return;
+    const usageDate = new Date().toISOString().slice(0, 10);
+    await tx
+      .insert(modelUsageDaily)
+      .values({
+        userId: values.userId,
+        gatewayModelId: values.resolvedGatewayModel,
+        usageDate,
+        requestCount: 1,
+        inputTokens: values.inputTokens ?? 0,
+        outputTokens: values.outputTokens ?? 0,
+      })
+      .onConflictDoUpdate({
+        target: [modelUsageDaily.userId, modelUsageDaily.gatewayModelId, modelUsageDaily.usageDate],
+        set: {
+          requestCount: sql`${modelUsageDaily.requestCount} + 1`,
+          inputTokens: sql`${modelUsageDaily.inputTokens} + ${values.inputTokens ?? 0}`,
+          outputTokens: sql`${modelUsageDaily.outputTokens} + ${values.outputTokens ?? 0}`,
+        },
+      });
+  });
 }
 
 function requestSignal(request: IncomingMessage): AbortSignal {

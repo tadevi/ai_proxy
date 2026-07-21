@@ -1,5 +1,7 @@
 import {
+  bigint,
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -172,5 +174,23 @@ export const requestLogs = pgTable(
   (t) => [
     index('logs_user_created_idx').on(t.userId, t.createdAt),
     index('logs_request_idx').on(t.requestId),
+    index('logs_created_idx').on(t.createdAt),
+  ],
+);
+export const modelUsageDaily = pgTable(
+  'model_usage_daily',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    gatewayModelId: text('gateway_model_id').notNull(),
+    usageDate: date('usage_date').notNull(),
+    requestCount: bigint('request_count', { mode: 'number' }).default(0).notNull(),
+    inputTokens: bigint('input_tokens', { mode: 'number' }).default(0).notNull(),
+    outputTokens: bigint('output_tokens', { mode: 'number' }).default(0).notNull(),
+  },
+  (t) => [
+    unique('model_usage_daily_unique').on(t.userId, t.gatewayModelId, t.usageDate),
+    index('model_usage_daily_user_model_idx').on(t.userId, t.gatewayModelId),
   ],
 );
