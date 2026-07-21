@@ -265,8 +265,25 @@ async function handleMessage(
   requestId: string,
   signal: AbortSignal,
 ) {
+  const started = Date.now();
+  const incomingModel =
+    isRecord(raw) && typeof raw.model === 'string' ? raw.model.slice(0, 200) : 'unknown';
   const parsed = anthropicRequestSchema.safeParse(raw);
-  if (!parsed.success)
+  if (!parsed.success) {
+    await writeLog(app, {
+      userId,
+      requestId,
+      incomingModel,
+      status: 400,
+      latencyMs: Date.now() - started,
+      errorCategory: 'invalid_request',
+      providerError: {
+        validationErrors: parsed.error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
+      },
+    });
     return reply
       .code(400)
       .send(
@@ -276,8 +293,8 @@ async function handleMessage(
           requestId,
         ),
       );
+  }
   const request = normalizeSystemMessages(parsed.data);
-  const started = Date.now();
   const { attempts, skipped } = await resolve(app, userId, request.model, request);
   if (!attempts.length) {
     await writeLog(app, {

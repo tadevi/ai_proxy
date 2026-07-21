@@ -140,7 +140,7 @@ export function Logs() {
                     <button
                       className="cursor-pointer underline decoration-red-400/50 underline-offset-4 hover:text-red-200"
                       onClick={() => setSelectedError(l)}
-                      title="View provider error details"
+                      title="View error details"
                       type="button"
                     >
                       {l.errorCategory ?? 'upstream_error'}
@@ -171,7 +171,7 @@ export function Logs() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-lg font-medium" id="provider-error-title">
-                  Provider error · {selectedError.errorCategory ?? 'upstream_error'}
+                  Error details · {selectedError.errorCategory ?? 'unknown_error'}
                 </h2>
                 <p className="muted mt-1">Request {selectedError.requestId}</p>
               </div>
