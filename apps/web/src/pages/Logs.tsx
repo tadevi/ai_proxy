@@ -30,8 +30,16 @@ type Log = {
   errorCategory?: string;
   providerError?: Record<string, unknown>;
 };
+type LogPage = {
+  items: Log[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+};
 export function Logs() {
   const [selectedError, setSelectedError] = useState<Log | null>(null);
+  const [page, setPage] = useState(1);
   const [filters, setFilters] = useState({
     requestId: '',
     model: '',
@@ -42,9 +50,10 @@ export function Logs() {
   const search = new URLSearchParams(
     Object.entries(filters).filter(([, value]) => value) as Array<[string, string]>,
   );
+  search.set('page', String(page));
   const logs = useQuery({
-    queryKey: ['logs', filters],
-    queryFn: () => api<Log[]>(`/api/logs${search.size ? `?${search}` : ''}`),
+    queryKey: ['logs', filters, page],
+    queryFn: () => api<LogPage>(`/api/logs?${search}`),
     refetchInterval: 10000,
   });
   return (
@@ -59,20 +68,29 @@ export function Logs() {
           className="input"
           placeholder="Request ID"
           value={filters.requestId}
-          onChange={(event) => setFilters({ ...filters, requestId: event.target.value })}
+          onChange={(event) => {
+            setFilters({ ...filters, requestId: event.target.value });
+            setPage(1);
+          }}
         />
         <input
           aria-label="Filter by model"
           className="input"
           placeholder="Model"
           value={filters.model}
-          onChange={(event) => setFilters({ ...filters, model: event.target.value })}
+          onChange={(event) => {
+            setFilters({ ...filters, model: event.target.value });
+            setPage(1);
+          }}
         />
         <select
           aria-label="Filter by status"
           className="input"
           value={filters.status}
-          onChange={(event) => setFilters({ ...filters, status: event.target.value })}
+          onChange={(event) => {
+            setFilters({ ...filters, status: event.target.value });
+            setPage(1);
+          }}
         >
           <option value="">All statuses</option>
           <option value="200">200</option>
@@ -87,14 +105,20 @@ export function Logs() {
           className="input"
           type="datetime-local"
           value={filters.from}
-          onChange={(event) => setFilters({ ...filters, from: event.target.value })}
+          onChange={(event) => {
+            setFilters({ ...filters, from: event.target.value });
+            setPage(1);
+          }}
         />
         <input
           aria-label="Requests to"
           className="input"
           type="datetime-local"
           value={filters.to}
-          onChange={(event) => setFilters({ ...filters, to: event.target.value })}
+          onChange={(event) => {
+            setFilters({ ...filters, to: event.target.value });
+            setPage(1);
+          }}
         />
       </div>
       <div className="card overflow-x-auto p-0">
@@ -119,7 +143,7 @@ export function Logs() {
             </tr>
           </thead>
           <tbody>
-            {logs.data?.map((l) => (
+            {logs.data?.items.map((l) => (
               <tr className="border-b border-zinc-800/60" key={l.id}>
                 <td className="whitespace-nowrap p-3">{new Date(l.createdAt).toLocaleString()}</td>
                 <td className="p-3 font-mono text-xs">{l.requestId}</td>
@@ -153,9 +177,40 @@ export function Logs() {
             ))}
           </tbody>
         </table>
-        {logs.data?.length === 0 && (
+        {logs.data?.items.length === 0 && (
           <p className="p-8 text-center text-zinc-400">No gateway requests yet.</p>
         )}
+      </div>
+      <div className="mt-4 flex items-center justify-between gap-3 text-sm text-zinc-400">
+        <span>
+          {logs.data
+            ? `Showing ${logs.data.total ? (logs.data.page - 1) * logs.data.pageSize + 1 : 0}–${Math.min(
+                logs.data.page * logs.data.pageSize,
+                logs.data.total,
+              )} of ${logs.data.total}`
+            : 'Loading logs…'}
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            className="btn"
+            disabled={!logs.data || logs.data.page <= 1}
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+            type="button"
+          >
+            Previous
+          </button>
+          <span className="whitespace-nowrap">
+            Page {logs.data?.page ?? page} / {logs.data?.totalPages ?? '…'}
+          </span>
+          <button
+            className="btn"
+            disabled={!logs.data || logs.data.page >= logs.data.totalPages}
+            onClick={() => setPage((current) => current + 1)}
+            type="button"
+          >
+            Next
+          </button>
+        </div>
       </div>
       {selectedError?.providerError && (
         <div

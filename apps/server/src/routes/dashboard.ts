@@ -435,6 +435,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
       status?: string;
       from?: string;
       to?: string;
+      page?: string;
     };
     const conditions = [eq(requestLogs.userId, req.dashboardUser!.id)];
     if (query.requestId) conditions.push(eq(requestLogs.requestId, query.requestId));
@@ -448,12 +449,25 @@ export async function dashboardRoutes(app: FastifyInstance) {
     if (query.to && !Number.isNaN(Date.parse(query.to))) {
       conditions.push(lte(requestLogs.createdAt, new Date(query.to)));
     }
-    return app.db
+    const pageSize = 50;
+    const requestedPage = Number.parseInt(query.page ?? '1', 10);
+    const [totalRow] = await app.db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(requestLogs)
+      .where(and(...conditions));
+    const total = totalRow?.total ?? 0;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Number.isSafeInteger(requestedPage)
+      ? Math.min(Math.max(requestedPage, 1), totalPages)
+      : 1;
+    const items = await app.db
       .select()
       .from(requestLogs)
       .where(and(...conditions))
       .orderBy(desc(requestLogs.createdAt))
-      .limit(200);
+      .limit(pageSize)
+      .offset((page - 1) * pageSize);
+    return { items, page, pageSize, total, totalPages };
   });
   app.get('/api/setup', async (req) => {
     const mapRows = await app.db
