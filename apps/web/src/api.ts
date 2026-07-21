@@ -44,6 +44,18 @@ export type ProviderConnection = {
   baseUrl: string;
   enabled: boolean;
 };
+export type Preset = {
+  id: string;
+  userId: string | null;
+  displayName: string;
+  upstreamModelId: string;
+  apiFormat: 'openai_compatible' | 'anthropic_compatible';
+  supportsImages: string;
+  supportsReasoning: string;
+  maxOutputTokens?: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
 export type Route = {
   routeId: string;
   modelId: string;

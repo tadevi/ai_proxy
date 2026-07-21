@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type Model, type ProviderConnection } from '../api';
+import { api, type Model, type Preset, type ProviderConnection } from '../api';
 type Form = {
   displayName: string;
   providerConnectionId: string;
@@ -79,7 +79,9 @@ function formatTokens(value: string | number) {
 export function Models() {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Model | null>(null);
-  const [show, setShow] = useState(false);
+  const [addMode, setAddMode] = useState<'preset' | 'manual' | null>(null);
+  const [linkPreset, setLinkPreset] = useState<Preset | null>(null);
+  const [presetSearch, setPresetSearch] = useState('');
   const [rulesModel, setRulesModel] = useState<Model | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
@@ -89,6 +91,11 @@ export function Models() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
   const models = useQuery({ queryKey: ['models'], queryFn: () => api<Model[]>('/api/models') });
+  const presets = useQuery({ queryKey: ['presets'], queryFn: () => api<Preset[]>('/api/presets') });
+  const connections = useQuery({
+    queryKey: ['connections'],
+    queryFn: () => api<ProviderConnection[]>('/api/connections'),
+  });
   const usage = useQuery({
     queryKey: ['models', 'usage'],
     queryFn: () => api<ModelUsage[]>('/api/models/usage'),
@@ -106,10 +113,33 @@ export function Models() {
         }),
       }),
     onSuccess: () => {
-      setShow(false);
+      setAddMode(null);
       setEditing(null);
       qc.invalidateQueries({ queryKey: ['models'] });
     },
+  });
+  const link = useMutation({
+    mutationFn: ({
+      presetId,
+      providerConnectionId,
+      displayName,
+    }: {
+      presetId: string;
+      providerConnectionId: string;
+      displayName?: string;
+    }) =>
+      api(`/api/presets/${presetId}/link`, {
+        method: 'POST',
+        body: JSON.stringify({ providerConnectionId, displayName }),
+      }),
+    onSuccess: () => {
+      setLinkPreset(null);
+      setAddMode(null);
+      setNotice({ tone: 'success', message: 'Model created from preset.' });
+      qc.invalidateQueries({ queryKey: ['models'] });
+      qc.invalidateQueries({ queryKey: ['mappings'] });
+    },
+    onError: (error) => setNotice({ tone: 'error', message: error.message }),
   });
   const del = useMutation({
     mutationFn: (id: string) => api(`/api/models/${id}`, { method: 'DELETE' }),
@@ -150,18 +180,151 @@ export function Models() {
           className="btn btn-primary"
           onClick={() => {
             setEditing(null);
-            setShow(true);
+            setAddMode('preset');
+            setPresetSearch('');
           }}
         >
           Add model
         </button>
       </div>
-      {show && (
+      {addMode === 'preset' && (
         <div
           className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
-              setShow(false);
+              setAddMode(null);
+              setLinkPreset(null);
+            }
+          }}
+          role="presentation"
+        >
+          <section
+            aria-modal="true"
+            className="flex w-full max-w-2xl flex-col rounded-xl border border-zinc-700 bg-zinc-900 shadow-xl"
+            role="dialog"
+            style={{ maxHeight: 'calc(100vh - 2rem)' }}
+          >
+            {!linkPreset ? (
+              <>
+                <div className="border-b border-zinc-800 p-5 pb-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-medium">Select a preset</h2>
+                    <button
+                      className="text-sm text-zinc-400 hover:text-zinc-200"
+                      onClick={() => {
+                        setAddMode('manual');
+                        setLinkPreset(null);
+                      }}
+                    >
+                      Add manually →
+                    </button>
+                  </div>
+                  <input
+                    className="input mt-3"
+                    placeholder="Search presets…"
+                    value={presetSearch}
+                    onChange={(event) => setPresetSearch(event.target.value)}
+                    autoFocus
+                  />
+                </div>
+                <div className="flex-1 overflow-y-auto p-5 pt-3">
+                  <div className="grid gap-2">
+                    {presets.data
+                      ?.filter(
+                        (p) =>
+                          !presetSearch ||
+                          p.displayName.toLowerCase().includes(presetSearch.toLowerCase()) ||
+                          p.upstreamModelId.toLowerCase().includes(presetSearch.toLowerCase()),
+                      )
+                      .map((preset) => (
+                        <button
+                          className="flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 text-left transition-colors hover:border-zinc-600 hover:bg-zinc-800/50"
+                          key={preset.id}
+                          onClick={() => setLinkPreset(preset)}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{preset.displayName}</span>
+                              {preset.userId === null && (
+                                <span className="rounded-full bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-500">
+                                  System
+                                </span>
+                              )}
+                              <span
+                                className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${preset.apiFormat === 'anthropic_compatible' ? 'bg-indigo-950 text-indigo-300' : 'bg-sky-950 text-sky-300'}`}
+                              >
+                                {preset.apiFormat === 'anthropic_compatible' ? 'Anthropic' : 'OpenAI'}
+                              </span>
+                            </div>
+                            <p className="mt-0.5 truncate font-mono text-xs text-zinc-500">
+                              {preset.upstreamModelId}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 gap-1.5">
+                            {preset.supportsReasoning === 'yes' && (
+                              <span className="rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-500">
+                                Reasoning
+                              </span>
+                            )}
+                            {preset.supportsImages === 'yes' && (
+                              <span className="rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-500">
+                                Images
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    {presets.data?.filter(
+                      (p) =>
+                        !presetSearch ||
+                        p.displayName.toLowerCase().includes(presetSearch.toLowerCase()) ||
+                        p.upstreamModelId.toLowerCase().includes(presetSearch.toLowerCase()),
+                    ).length === 0 && (
+                      <p className="py-8 text-center text-sm text-zinc-500">No presets found.</p>
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="p-5">
+                <button
+                  className="mb-4 text-sm text-zinc-400 hover:text-zinc-200"
+                  onClick={() => setLinkPreset(null)}
+                >
+                  ← Back to presets
+                </button>
+                <h2 className="text-lg font-medium">Link preset</h2>
+                <p className="muted mt-1">
+                  Create a model from{' '}
+                  <span className="font-mono text-zinc-200">{linkPreset.displayName}</span>
+                </p>
+                <LinkPresetForm
+                  connections={connections.data?.filter((c) => c.enabled) ?? []}
+                  preset={linkPreset}
+                  error={link.error?.message}
+                  onCancel={() => {
+                    setAddMode(null);
+                    setLinkPreset(null);
+                  }}
+                  onLink={(connectionId, displayName) =>
+                    link.mutate({
+                      presetId: linkPreset.id,
+                      providerConnectionId: connectionId,
+                      displayName,
+                    })
+                  }
+                />
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+      {addMode === 'manual' && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setAddMode(null);
               setEditing(null);
             }
           }}
@@ -177,7 +340,7 @@ export function Models() {
               initial={editing}
               error={save.error?.message}
               onCancel={() => {
-                setShow(false);
+                setAddMode(null);
                 setEditing(null);
               }}
               onSave={(v) => save.mutate(v)}
@@ -223,7 +386,7 @@ export function Models() {
                       className="btn h-8 px-3.5 text-[13px]"
                       onClick={() => {
                         setEditing(m);
-                        setShow(true);
+                        setAddMode('manual');
                       }}
                     >
                       Edit
@@ -578,5 +741,60 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="label">{label}</span>
       {children}
     </label>
+  );
+}
+
+function LinkPresetForm({
+  connections,
+  preset,
+  error,
+  onCancel,
+  onLink,
+}: {
+  connections: ProviderConnection[];
+  preset: Preset;
+  error?: string;
+  onCancel: () => void;
+  onLink: (connectionId: string, displayName?: string) => void;
+}) {
+  const { register, handleSubmit } = useForm<{
+    providerConnectionId: string;
+    displayName: string;
+  }>({
+    defaultValues: { providerConnectionId: '', displayName: preset.displayName },
+  });
+  return (
+    <form
+      className="mt-4 grid gap-4"
+      onSubmit={handleSubmit((v) =>
+        onLink(
+          v.providerConnectionId,
+          v.displayName !== preset.displayName ? v.displayName : undefined,
+        ),
+      )}
+    >
+      <label>
+        <span className="label">Display name</span>
+        <input className="input" {...register('displayName')} />
+      </label>
+      <label>
+        <span className="label">Provider connection</span>
+        <select className="input" {...register('providerConnectionId', { required: true })}>
+          <option value="">Select a connection…</option>
+          {connections.map((c) => (
+            <option value={c.id} key={c.id}>
+              {c.displayName}
+            </option>
+          ))}
+        </select>
+      </label>
+      {error && <p className="text-red-400">{error}</p>}
+      <div className="flex gap-2">
+        <button className="btn btn-primary">Create model</button>
+        <button type="button" className="btn" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }

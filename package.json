@@ -14,6 +14,7 @@
     "format:check": "prettier --check .",
     "db:generate": "drizzle-kit generate --config packages/db/drizzle.config.ts",
     "db:migrate": "tsx packages/db/src/migrate.ts",
+    "db:seed-presets": "tsx packages/db/src/seed-presets.ts",
     "secrets": "node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\""
   },
   "devDependencies": {

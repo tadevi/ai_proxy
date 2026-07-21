@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import bcrypt from 'bcryptjs';
-import { and, asc, desc, eq, gte, inArray, lt, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import {
   gatewayKeys,
   mappingRoutes,
   mappings,
+  modelPresets,
   modelUsageDaily,
   providerConnections,
   requestLogs,
@@ -20,6 +21,8 @@ import {
   gatewayKeyInputSchema,
   mappingUpdateSchema,
   modelInputSchema,
+  presetInputSchema,
+  presetLinkSchema,
   providerConnectionInputSchema,
   ruleInputSchema,
 } from '@gateway/shared';
@@ -324,6 +327,80 @@ export async function dashboardRoutes(app: FastifyInstance) {
       .where(and(eq(upstreamModels.id, id), eq(upstreamModels.userId, req.dashboardUser!.id)))
       .returning({ id: upstreamModels.id });
     return model ? { ok: true } : reply.code(404).send({ error: 'Model not found' });
+  });
+
+  const safePreset = {
+    id: modelPresets.id,
+    userId: modelPresets.userId,
+    displayName: modelPresets.displayName,
+    upstreamModelId: modelPresets.upstreamModelId,
+    apiFormat: modelPresets.apiFormat,
+    supportsImages: modelPresets.supportsImages,
+    supportsReasoning: modelPresets.supportsReasoning,
+    maxOutputTokens: modelPresets.maxOutputTokens,
+    createdAt: modelPresets.createdAt,
+    updatedAt: modelPresets.updatedAt,
+  };
+
+  app.get('/api/presets', async (req) =>
+    app.db
+      .select(safePreset)
+      .from(modelPresets)
+      .where(or(isNull(modelPresets.userId), eq(modelPresets.userId, req.dashboardUser!.id)))
+      .orderBy(
+        sql`CASE WHEN ${modelPresets.userId} IS NULL THEN 0 ELSE 1 END`,
+        asc(modelPresets.displayName),
+      ),
+  );
+  app.post('/api/presets', async (req, reply) => {
+    const input = presetInputSchema.parse(req.body);
+    const [preset] = await app.db
+      .insert(modelPresets)
+      .values({ ...input, userId: req.dashboardUser!.id })
+      .returning(safePreset);
+    return reply.code(201).send(preset);
+  });
+  app.delete('/api/presets/:id', async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+    const [preset] = await app.db
+      .delete(modelPresets)
+      .where(and(eq(modelPresets.id, id), eq(modelPresets.userId, req.dashboardUser!.id)))
+      .returning({ id: modelPresets.id });
+    return preset ? { ok: true } : reply.code(404).send({ error: 'Preset not found' });
+  });
+  app.post('/api/presets/:presetId/link', async (req, reply) => {
+    const presetId = (req.params as { presetId: string }).presetId;
+    const input = presetLinkSchema.parse(req.body);
+    if (!(await ownsConnection(app, req.dashboardUser!.id, input.providerConnectionId))) {
+      return reply.code(403).send({ error: 'Provider connection not found' });
+    }
+    const [preset] = await app.db
+      .select(safePreset)
+      .from(modelPresets)
+      .where(
+        and(
+          eq(modelPresets.id, presetId),
+          or(isNull(modelPresets.userId), eq(modelPresets.userId, req.dashboardUser!.id)),
+        ),
+      )
+      .limit(1);
+    if (!preset) return reply.code(404).send({ error: 'Preset not found' });
+    const displayName = input.displayName ?? preset.displayName;
+    const [created] = await app.db
+      .insert(upstreamModels)
+      .values({
+        userId: req.dashboardUser!.id,
+        displayName,
+        gatewayModelId: generateGatewayModelId(displayName),
+        upstreamModelId: preset.upstreamModelId,
+        providerConnectionId: input.providerConnectionId,
+        apiFormat: preset.apiFormat,
+        supportsImages: preset.supportsImages as 'yes' | 'no',
+        supportsReasoning: preset.supportsReasoning as 'yes' | 'no',
+        maxOutputTokens: preset.maxOutputTokens,
+      })
+      .returning({ id: upstreamModels.id });
+    return reply.code(201).send((await getModel(app, req.dashboardUser!.id, created!.id))!);
   });
 
   app.get('/api/mappings', async (req) => {

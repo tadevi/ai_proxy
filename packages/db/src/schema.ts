@@ -107,6 +107,22 @@ export const upstreamModels = pgTable(
     unique('models_user_gateway_unique').on(t.userId, t.gatewayModelId),
   ],
 );
+export const modelPresets = pgTable(
+  'model_presets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    displayName: text('display_name').notNull(),
+    upstreamModelId: text('upstream_model_id').notNull(),
+    apiFormat: apiFormat('api_format').notNull(),
+    supportsImages: capability('supports_images').default('no').notNull(),
+    supportsReasoning: capability('supports_reasoning').default('no').notNull(),
+    maxOutputTokens: integer('max_output_tokens'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('model_presets_user_idx').on(t.userId)],
+);
 export const mappings = pgTable(
   'mappings',
   {

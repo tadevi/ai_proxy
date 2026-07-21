@@ -45,6 +45,18 @@ export const modelInputSchema = z.object({
   supportsReasoning: binaryCapabilitySchema.default('yes'),
   enabled: z.boolean().default(true),
 });
+export const presetInputSchema = z.object({
+  displayName: z.string().trim().min(1).max(120),
+  upstreamModelId: z.string().trim().min(1).max(200),
+  apiFormat: apiFormatSchema,
+  supportsImages: binaryCapabilitySchema.default('no'),
+  supportsReasoning: binaryCapabilitySchema.default('no'),
+  maxOutputTokens: z.number().int().positive().nullable().optional(),
+});
+export const presetLinkSchema = z.object({
+  providerConnectionId: z.string().uuid(),
+  displayName: z.string().trim().min(1).max(120).optional(),
+});
 export const gatewayKeyInputSchema = z.object({ name: z.string().trim().min(1).max(100) });
 export const mappingUpdateSchema = z.object({
   routes: z.array(z.object({ modelId: z.string().uuid(), enabled: z.boolean() })).max(100),
@@ -67,6 +79,8 @@ export const ruleInputSchema = z.object({
 export type ModelInput = z.infer<typeof modelInputSchema>;
 export type ProviderConnectionInput = z.infer<typeof providerConnectionInputSchema>;
 export type RuleInput = z.infer<typeof ruleInputSchema>;
+export type PresetInput = z.infer<typeof presetInputSchema>;
+export type PresetLinkInput = z.infer<typeof presetLinkSchema>;
 
 export function anthropicError(type: string, message: string, requestId?: string) {
   return {
