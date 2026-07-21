@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import { Auth } from './pages/Auth';
@@ -8,10 +8,22 @@ import { Mappings } from './pages/Mappings';
 import { Logs } from './pages/Logs';
 import { Setup } from './pages/Setup';
 import { Account } from './pages/Account';
-const pages = ['Connections', 'Models', 'Mappings', 'Logs', 'Setup', 'Account'] as const;
-type Page = (typeof pages)[number];
+const pages = [
+  { name: 'Connections', path: '/connections' },
+  { name: 'Models', path: '/models' },
+  { name: 'Mappings', path: '/mappings' },
+  { name: 'Logs', path: '/logs' },
+  { name: 'Setup', path: '/setup' },
+  { name: 'Account', path: '/account' },
+] as const;
+type Page = (typeof pages)[number]['name'];
+
+function pageFromPath(pathname: string): Page {
+  return pages.find((page) => page.path === pathname)?.name ?? 'Models';
+}
+
 export function App() {
-  const [page, setPage] = useState<Page>('Models');
+  const [page, setPage] = useState<Page>(() => pageFromPath(window.location.pathname));
   const qc = useQueryClient();
   const me = useQuery({
     queryKey: ['me'],
@@ -21,6 +33,16 @@ export function App() {
     mutationFn: () => api('/api/auth/logout', { method: 'POST' }),
     onSuccess: () => qc.setQueryData(['me'], null),
   });
+  useEffect(() => {
+    const onPopState = () => setPage(pageFromPath(window.location.pathname));
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+  const navigate = (next: (typeof pages)[number]) => {
+    if (next.name === page) return;
+    window.history.pushState(null, '', next.path);
+    setPage(next.name);
+  };
   if (me.isLoading) return <Center>Loading…</Center>;
   if (!me.data) return <Auth onSuccess={() => qc.invalidateQueries({ queryKey: ['me'] })} />;
   return (
@@ -29,13 +51,13 @@ export function App() {
         <div className="mx-auto flex max-w-7xl items-center gap-2 px-4 py-3">
           <div className="mr-6 font-semibold">Passthrough</div>
           <nav className="flex flex-1 gap-1 overflow-x-auto">
-            {pages.map((p) => (
+            {pages.map((item) => (
               <button
-                className={`rounded-lg px-3 py-2 text-sm ${page === p ? 'bg-zinc-800' : 'text-zinc-400 hover:text-white'}`}
-                onClick={() => setPage(p)}
-                key={p}
+                className={`rounded-lg px-3 py-2 text-sm ${page === item.name ? 'bg-zinc-800' : 'text-zinc-400 hover:text-white'}`}
+                onClick={() => navigate(item)}
+                key={item.name}
               >
-                {p}
+                {item.name}
               </button>
             ))}
           </nav>

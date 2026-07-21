@@ -28,6 +28,7 @@ export type Model = {
   requestPathOverride?: string | null;
   providerEnabled: boolean;
   enabled: boolean;
+  maxOutputTokens?: number | null;
   supportsStreaming: string;
   supportsTools: string;
   supportsImages: string;

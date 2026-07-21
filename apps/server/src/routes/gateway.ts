@@ -444,6 +444,9 @@ async function callModel(
   clientSignal.addEventListener('abort', abort, { once: true });
   try {
     const key = decryptCredential(connection, app.config.CREDENTIAL_ENCRYPTION_KEY);
+    const requestForModel = model.maxOutputTokens
+      ? { ...request, max_tokens: Math.min(request.max_tokens, model.maxOutputTokens) }
+      : request;
     let body: Record<string, unknown>;
     let headers: Record<string, string>;
     if (model.apiFormat === 'openai_compatible') {
@@ -458,21 +461,21 @@ async function callModel(
         position: r.position,
         config: r.configJson as Record<string, unknown>,
       })) satisfies Rule[];
-      body = anthropicToOpenAI(request, model.upstreamModelId);
-      body = applyRules(body, rules, normalizeThinking(request.thinking));
-      if (request.stream) body.stream_options = { include_usage: true };
+      body = anthropicToOpenAI(requestForModel, model.upstreamModelId);
+      body = applyRules(body, rules, normalizeThinking(requestForModel.thinking));
+      if (requestForModel.stream) body.stream_options = { include_usage: true };
       headers = {
         authorization: `Bearer ${key}`,
         'content-type': 'application/json',
-        accept: request.stream ? 'text/event-stream' : 'application/json',
+        accept: requestForModel.stream ? 'text/event-stream' : 'application/json',
       };
     } else {
-      body = { ...request, model: model.upstreamModelId };
+      body = { ...requestForModel, model: model.upstreamModelId };
       headers = {
         'x-api-key': key,
         'anthropic-version': '2023-06-01',
         'content-type': 'application/json',
-        accept: request.stream ? 'text/event-stream' : 'application/json',
+        accept: requestForModel.stream ? 'text/event-stream' : 'application/json',
       };
     }
     const response = await fetch(endpoint, {
@@ -494,7 +497,7 @@ async function callModel(
         providerError,
       );
     }
-    if (request.stream) {
+    if (requestForModel.stream) {
       if (!response.body)
         throw new UpstreamFailure(
           'The upstream provider returned an empty stream.',

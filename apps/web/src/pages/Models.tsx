@@ -9,6 +9,7 @@ type Form = {
   apiFormat: 'openai_compatible' | 'anthropic_compatible';
   providerBasePath: string;
   requestPathOverride: string;
+  maxOutputTokens: string;
   enabled: boolean;
   supportsImages: string;
   supportsReasoning: string;
@@ -20,6 +21,7 @@ const defaults: Form = {
   apiFormat: 'openai_compatible',
   providerBasePath: '',
   requestPathOverride: '',
+  maxOutputTokens: '',
   enabled: true,
   supportsImages: 'no',
   supportsReasoning: 'yes',
@@ -41,7 +43,11 @@ export function Models() {
     mutationFn: (v: Form) =>
       api(`/api/models${editing ? `/${editing.id}` : ''}`, {
         method: editing ? 'PATCH' : 'POST',
-        body: JSON.stringify({ ...v, requestPathOverride: v.requestPathOverride || null }),
+        body: JSON.stringify({
+          ...v,
+          maxOutputTokens: v.maxOutputTokens ? Number(v.maxOutputTokens) : null,
+          requestPathOverride: v.requestPathOverride || null,
+        }),
       }),
     onSuccess: () => {
       setShow(false);
@@ -297,7 +303,12 @@ function ModelForm({
 }) {
   const { register, handleSubmit, watch } = useForm<Form>({
     defaultValues: initial
-      ? { ...defaults, ...initial, requestPathOverride: initial.requestPathOverride ?? '' }
+      ? {
+          ...defaults,
+          ...initial,
+          maxOutputTokens: initial.maxOutputTokens?.toString() ?? '',
+          requestPathOverride: initial.requestPathOverride ?? '',
+        }
       : defaults,
   });
   const connections = useQuery({
@@ -337,6 +348,15 @@ function ModelForm({
           className="input"
           placeholder="/apps/anthropic or /compatible-mode/v1"
           {...register('providerBasePath')}
+        />
+      </Field>
+      <Field label="Max output tokens">
+        <input
+          className="input"
+          min="1"
+          placeholder="Leave blank to forward unchanged"
+          type="number"
+          {...register('maxOutputTokens')}
         />
       </Field>
       <Field label="Advanced request path override">
