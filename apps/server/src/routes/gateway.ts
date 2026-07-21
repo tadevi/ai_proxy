@@ -355,6 +355,7 @@ async function handleMessage(
       status: 400,
       latencyMs: Date.now() - started,
       errorCategory: 'no_eligible_route',
+      thinkingConfig: request.thinking ?? null,
       skippedRoutes: skipped,
     });
     return reply
@@ -405,6 +406,7 @@ async function handleMessage(
             inputTokens: result.usage?.inputTokens,
             outputTokens: result.usage?.outputTokens,
             cacheInputTokens: result.usage?.cacheInputTokens,
+            thinkingConfig: request.thinking ?? null,
             fallbackCount: index,
             skippedRoutes: skipped,
           });
@@ -420,6 +422,7 @@ async function handleMessage(
             latencyMs: Date.now() - started,
             fallbackCount: index,
             errorCategory: 'stream_interrupted',
+            thinkingConfig: request.thinking ?? null,
             skippedRoutes: skipped,
           });
         }
@@ -441,6 +444,7 @@ async function handleMessage(
         inputTokens: usage?.input_tokens,
         outputTokens: usage?.output_tokens,
         cacheInputTokens: cacheTokens || undefined,
+        thinkingConfig: request.thinking ?? null,
         fallbackCount: index,
         skippedRoutes: skipped,
       });

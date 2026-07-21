@@ -182,6 +182,7 @@ export const requestLogs = pgTable(
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
     cacheInputTokens: integer('cache_input_tokens'),
+    thinkingConfig: jsonb('thinking_config'),
     fallbackCount: integer('fallback_count').default(0).notNull(),
     errorCategory: text('error_category'),
     providerError: jsonb('provider_error'),

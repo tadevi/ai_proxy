@@ -49,6 +49,14 @@ export function Connections() {
       queryClient.invalidateQueries({ queryKey: ['mappings'] });
     },
   });
+  const toggleEnabled = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      api(`/api/connections/${id}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['connections'] });
+      queryClient.invalidateQueries({ queryKey: ['models'] });
+    },
+  });
   return (
     <>
       <div className="mb-6 flex items-end justify-between">
@@ -81,12 +89,21 @@ export function Connections() {
           <div className="card flex flex-col gap-4 lg:flex-row lg:items-center" key={connection.id}>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <h2 className="font-medium">{connection.displayName}</h2>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-xs ${connection.enabled ? 'bg-emerald-950 text-emerald-300' : 'bg-zinc-800 text-zinc-400'}`}
+                <button
+                  aria-checked={connection.enabled}
+                  aria-label={`${connection.enabled ? 'Disable' : 'Enable'} ${connection.displayName}`}
+                  className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 ${connection.enabled ? 'bg-emerald-500/80' : 'bg-zinc-700'}`}
+                  disabled={toggleEnabled.isPending}
+                  onClick={() => toggleEnabled.mutate({ id: connection.id, enabled: !connection.enabled })}
+                  role="switch"
+                  title={connection.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}
+                  type="button"
                 >
-                  {connection.enabled ? 'Enabled' : 'Disabled'}
-                </span>
+                  <span
+                    className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-zinc-100 shadow-sm transition-transform ${connection.enabled ? 'translate-x-4' : 'translate-x-0'}`}
+                  />
+                </button>
+                <h2 className="font-medium">{connection.displayName}</h2>
               </div>
               <p className="muted mt-1 truncate">{connection.baseUrl}</p>
             </div>
@@ -104,7 +121,7 @@ export function Connections() {
                 className="btn btn-danger"
                 onClick={() =>
                   confirm(
-                    `Delete “${connection.displayName}”? This also permanently deletes all of its models and removes them from mappings.`,
+                    `Delete "${connection.displayName}"? This also permanently deletes all of its models and removes them from mappings.`,
                   ) && remove.mutate(connection.id)
                 }
               >

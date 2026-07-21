@@ -29,6 +29,7 @@ type Log = {
   fallbackCount: number;
   errorCategory?: string;
   providerError?: Record<string, unknown>;
+  thinkingConfig?: Record<string, unknown> | null;
 };
 type LogPage = {
   items: Log[];
@@ -135,6 +136,7 @@ export function Logs() {
                 'Status',
                 'Latency',
                 'Tokens',
+                'Thinking',
                 'Fallbacks',
                 'Error',
               ].map((x) => (
@@ -159,6 +161,20 @@ export function Logs() {
                 <td className="p-3">{l.latencyMs}ms</td>
                 <td className="p-3">
                   {formatTokens(l.inputTokens)} / {formatTokens(l.outputTokens)}
+                </td>
+                <td className="p-3">
+                  {l.thinkingConfig ? (
+                    <button
+                      className="cursor-pointer text-zinc-300 underline decoration-zinc-600 underline-offset-4 hover:text-zinc-100"
+                      onClick={() => setSelectedError(l)}
+                      title={JSON.stringify(l.thinkingConfig)}
+                      type="button"
+                    >
+                      {String(l.thinkingConfig.effort ?? l.thinkingConfig.type ?? 'configured')}
+                    </button>
+                  ) : (
+                    <span className="text-zinc-600">—</span>
+                  )}
                 </td>
                 <td className="p-3">{l.fallbackCount}</td>
                 <td className="p-3 text-red-300">
@@ -218,26 +234,31 @@ export function Logs() {
           </button>
         </div>
       </div>
-      {selectedError?.providerError && (
+      {selectedError && (selectedError.providerError || selectedError.thinkingConfig) && (
         <div
           className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSelectedError(null);
+          }}
           role="presentation"
         >
           <section
-            aria-labelledby="provider-error-title"
+            aria-labelledby="detail-title"
             aria-modal="true"
             className="card w-full max-w-2xl"
             role="dialog"
           >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-lg font-medium" id="provider-error-title">
-                  Error details · {selectedError.errorCategory ?? 'unknown_error'}
+                <h2 className="text-lg font-medium" id="detail-title">
+                  {selectedError.providerError
+                    ? `Error details · ${selectedError.errorCategory ?? 'unknown_error'}`
+                    : 'Thinking config'}
                 </h2>
                 <p className="muted mt-1">Request {selectedError.requestId}</p>
               </div>
               <button
-                aria-label="Close provider error details"
+                aria-label="Close details"
                 className="btn"
                 onClick={() => setSelectedError(null)}
                 type="button"
@@ -245,8 +266,12 @@ export function Logs() {
                 Close
               </button>
             </div>
-            <pre className="mt-4 max-h-[60vh] overflow-auto rounded-lg bg-zinc-950 p-4 text-xs text-red-200">
-              {JSON.stringify(selectedError.providerError, null, 2)}
+            <pre className="mt-4 max-h-[60vh] overflow-auto rounded-lg bg-zinc-950 p-4 text-xs text-zinc-200">
+              {JSON.stringify(
+                selectedError.providerError ?? selectedError.thinkingConfig,
+                null,
+                2,
+              )}
             </pre>
           </section>
         </div>
