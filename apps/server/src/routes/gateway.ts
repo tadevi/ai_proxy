@@ -32,10 +32,9 @@ type ResolvedModel = { model: Model; connection: ProviderConnection };
 type Attempt = { resolved: ResolvedModel; routeIndex: number };
 type ProviderErrorDetails = {
   upstreamStatus: number;
-  type?: string;
-  code?: string | number;
-  message?: string;
   requestId?: string;
+  response?: unknown;
+  responseText?: string;
 };
 class UpstreamFailure extends Error {
   constructor(
@@ -60,8 +59,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function safeString(value: unknown, maximum = 2_000) {
-  return typeof value === 'string' ? value.slice(0, maximum) : undefined;
+const secretField = /api[-_]?key|authorization|token|secret|password|cookie/i;
+
+function redactErrorBody(value: unknown, field = '', depth = 0): unknown {
+  if (secretField.test(field)) return '[REDACTED]';
+  if (depth >= 8) return '[TRUNCATED]';
+  if (typeof value === 'string') return value.slice(0, 8_000);
+  if (Array.isArray(value))
+    return value.slice(0, 100).map((item) => redactErrorBody(item, '', depth + 1));
+  if (isRecord(value))
+    return Object.fromEntries(
+      Object.entries(value)
+        .slice(0, 100)
+        .map(([key, item]) => [key, redactErrorBody(item, key, depth + 1)]),
+    );
+  return value;
 }
 
 async function readProviderError(response: Response): Promise<ProviderErrorDetails> {
@@ -71,18 +83,12 @@ async function readProviderError(response: Response): Promise<ProviderErrorDetai
     response.headers.get('x-request-id') ??
     response.headers.get('trace-id');
   if (requestId) details.requestId = requestId.slice(0, 200);
+  const body = await response.text();
+  if (!body) return details;
   try {
-    const body = JSON.parse(await response.text()) as unknown;
-    const error = isRecord(body) && isRecord(body.error) ? body.error : body;
-    if (!isRecord(error)) return details;
-    const type = safeString(error.type, 200);
-    const message = safeString(error.message);
-    const code = error.code;
-    if (type) details.type = type;
-    if (message) details.message = message;
-    if (typeof code === 'string' || typeof code === 'number') details.code = code;
+    details.response = redactErrorBody(JSON.parse(body));
   } catch {
-    // Do not persist arbitrary non-JSON bodies because they can contain request data.
+    details.responseText = body.slice(0, 8_000);
   }
   return details;
 }
