@@ -1,0 +1,30 @@
+{
+  "name": "anthropic-passthrough",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.13.1",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @gateway/web --filter @gateway/server dev",
+    "build": "pnpm -r build",
+    "start": "pnpm --filter @gateway/server start",
+    "test": "vitest run",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:generate": "drizzle-kit generate --config packages/db/drizzle.config.ts",
+    "db:migrate": "tsx packages/db/src/migrate.ts",
+    "secrets": "node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\""
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.31.0",
+    "@types/node": "^24.0.15",
+    "drizzle-kit": "^0.31.4",
+    "eslint": "^9.31.0",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.38.0",
+    "vitest": "^3.2.4"
+  }
+}

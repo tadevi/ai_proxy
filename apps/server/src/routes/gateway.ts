@@ -1,0 +1,490 @@
+import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { IncomingMessage } from 'node:http';
+import { and, asc, eq } from 'drizzle-orm';
+import {
+  mappingRoutes,
+  mappings,
+  providerConnections,
+  requestLogs,
+  transformationRules,
+  upstreamModels,
+} from '@gateway/db';
+import { anthropicError } from '@gateway/shared';
+import {
+  anthropicRequestSchema,
+  anthropicToOpenAI,
+  applyRules,
+  normalizeThinking,
+  normalizeSystemMessages,
+  openAIStreamToAnthropic,
+  openAIToAnthropic,
+  parseSSE,
+  type AnthropicRequest,
+  type Rule,
+} from '@gateway/protocol';
+import { gatewayAuth } from '../auth.js';
+import { decryptCredential, validateUpstreamUrl } from '../security.js';
+
+type Model = typeof upstreamModels.$inferSelect;
+type ProviderConnection = typeof providerConnections.$inferSelect;
+type ResolvedModel = { model: Model; connection: ProviderConnection };
+type Attempt = { resolved: ResolvedModel; routeIndex: number };
+class UpstreamFailure extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly fallbackable: boolean,
+    readonly category: string,
+  ) {
+    super(message);
+  }
+}
+const fallbackStatuses = new Set([429, 500, 502, 503, 504]);
+const safeProviderMessage = (status: number) =>
+  status === 401 || status === 403
+    ? 'The provider rejected the configured API key.'
+    : status === 404
+      ? 'The upstream endpoint or model was not found.'
+      : `The upstream provider returned HTTP ${status}.`;
+
+export async function gatewayRoutes(app: FastifyInstance) {
+  app.get(
+    '/v1/models',
+    { preHandler: (req, reply) => gatewayAuth(app, req, reply) },
+    async (req) => {
+      const models = await app.db
+        .select({ id: upstreamModels.gatewayModelId, createdAt: upstreamModels.createdAt })
+        .from(upstreamModels)
+        .innerJoin(
+          providerConnections,
+          eq(providerConnections.id, upstreamModels.providerConnectionId),
+        )
+        .where(
+          and(
+            eq(upstreamModels.userId, req.gatewayUserId!),
+            eq(upstreamModels.enabled, true),
+            eq(providerConnections.enabled, true),
+          ),
+        );
+      return {
+        object: 'list',
+        data: models.map((m) => ({
+          id: m.id,
+          type: 'model',
+          display_name: m.id,
+          created_at: Math.floor(m.createdAt.getTime() / 1000),
+        })),
+      };
+    },
+  );
+  app.post(
+    '/v1/messages',
+    { preHandler: (req, reply) => gatewayAuth(app, req, reply) },
+    async (req, reply) =>
+      handleMessage(app, req.body, req.gatewayUserId!, reply, req.id, requestSignal(req.raw)),
+  );
+  app.post(
+    '/anthropic/v1/messages',
+    { preHandler: (req, reply) => gatewayAuth(app, req, reply) },
+    async (req, reply) =>
+      handleMessage(app, req.body, req.gatewayUserId!, reply, req.id, requestSignal(req.raw)),
+  );
+  app.post('/api/models/:id/test', async (req, reply) => {
+    const userId = req.dashboardUser!.id;
+    const id = (req.params as { id: string }).id;
+    const [row] = await app.db
+      .select({ model: upstreamModels, connection: providerConnections })
+      .from(upstreamModels)
+      .innerJoin(
+        providerConnections,
+        eq(providerConnections.id, upstreamModels.providerConnectionId),
+      )
+      .where(and(eq(upstreamModels.id, id), eq(upstreamModels.userId, userId)))
+      .limit(1);
+    if (!row) return reply.code(404).send({ error: 'Model not found' });
+    const test: AnthropicRequest = {
+      model: row.model.gatewayModelId,
+      max_tokens: 8,
+      messages: [{ role: 'user', content: 'Reply with OK.' }],
+      stream: false,
+    };
+    try {
+      const result = await callModel(
+        app,
+        row,
+        test,
+        row.model.gatewayModelId,
+        requestSignal(req.raw),
+      );
+      await app.db
+        .update(upstreamModels)
+        .set({ latestTestStatus: 'healthy', latestTestAt: new Date() })
+        .where(eq(upstreamModels.id, id));
+      return {
+        ok: true,
+        message: 'Authentication, model access, and response conversion succeeded.',
+        response: result.body,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Model test failed';
+      await app.db
+        .update(upstreamModels)
+        .set({ latestTestStatus: 'failed', latestTestAt: new Date() })
+        .where(eq(upstreamModels.id, id));
+      return reply.code(502).send({ ok: false, message });
+    }
+  });
+}
+
+async function resolve(
+  app: FastifyInstance,
+  userId: string,
+  incoming: string,
+  request: AnthropicRequest,
+): Promise<{ attempts: Attempt[]; skipped: object[] }> {
+  const hasImages = request.messages.some(
+    (m) => Array.isArray(m.content) && m.content.some((b) => b.type === 'image'),
+  );
+  const [mapping] = await app.db
+    .select({ id: mappings.id })
+    .from(mappings)
+    .where(and(eq(mappings.userId, userId), eq(mappings.alias, incoming)))
+    .limit(1);
+  let models: Array<{ resolved: ResolvedModel; position: number }>;
+  if (mapping) {
+    const rows = await app.db
+      .select({
+        model: upstreamModels,
+        connection: providerConnections,
+        position: mappingRoutes.position,
+      })
+      .from(mappingRoutes)
+      .innerJoin(upstreamModels, eq(upstreamModels.id, mappingRoutes.upstreamModelId))
+      .innerJoin(
+        providerConnections,
+        eq(providerConnections.id, upstreamModels.providerConnectionId),
+      )
+      .where(
+        and(
+          eq(mappingRoutes.mappingId, mapping.id),
+          eq(mappingRoutes.enabled, true),
+          eq(upstreamModels.enabled, true),
+          eq(providerConnections.enabled, true),
+        ),
+      )
+      .orderBy(asc(mappingRoutes.position));
+    models = rows.map(({ model, connection, position }) => ({
+      resolved: { model, connection },
+      position,
+    }));
+  } else {
+    const rows = await app.db
+      .select({ model: upstreamModels, connection: providerConnections })
+      .from(upstreamModels)
+      .innerJoin(
+        providerConnections,
+        eq(providerConnections.id, upstreamModels.providerConnectionId),
+      )
+      .where(
+        and(
+          eq(upstreamModels.userId, userId),
+          eq(upstreamModels.gatewayModelId, incoming),
+          eq(upstreamModels.enabled, true),
+          eq(providerConnections.enabled, true),
+        ),
+      )
+      .limit(1);
+    models = rows.map((resolved) => ({ resolved, position: 0 }));
+  }
+  const skipped: object[] = [];
+  const attempts: Attempt[] = [];
+  for (const row of models) {
+    const reason =
+      hasImages && row.resolved.model.supportsImages !== 'yes'
+        ? row.resolved.model.supportsImages === 'no'
+          ? 'images_unsupported'
+          : 'images_capability_unknown'
+        : null;
+    if (reason) skipped.push({ gatewayModelId: row.resolved.model.gatewayModelId, reason });
+    else attempts.push({ resolved: row.resolved, routeIndex: row.position });
+  }
+  return { attempts, skipped };
+}
+
+async function handleMessage(
+  app: FastifyInstance,
+  raw: unknown,
+  userId: string,
+  reply: FastifyReply,
+  requestId: string,
+  signal: AbortSignal,
+) {
+  const parsed = anthropicRequestSchema.safeParse(raw);
+  if (!parsed.success)
+    return reply
+      .code(400)
+      .send(
+        anthropicError(
+          'invalid_request_error',
+          parsed.error.issues[0]?.message ?? 'Invalid request',
+          requestId,
+        ),
+      );
+  const request = normalizeSystemMessages(parsed.data);
+  const started = Date.now();
+  const { attempts, skipped } = await resolve(app, userId, request.model, request);
+  if (!attempts.length) {
+    await writeLog(app, {
+      userId,
+      requestId,
+      incomingModel: request.model,
+      status: 400,
+      latencyMs: Date.now() - started,
+      errorCategory: 'no_eligible_route',
+      skippedRoutes: skipped,
+    });
+    return reply
+      .code(400)
+      .send(
+        anthropicError(
+          'invalid_request_error',
+          `No eligible ${request.model} route is configured.`,
+          requestId,
+        ),
+      );
+  }
+  let failure: UpstreamFailure | undefined;
+  for (let index = 0; index < attempts.length; index++) {
+    const attempt = attempts[index]!;
+    try {
+      const result = await callModel(app, attempt.resolved, request, request.model, signal);
+      if (result.stream) {
+        reply.hijack();
+        reply.raw.writeHead(200, {
+          'content-type': 'text/event-stream; charset=utf-8',
+          'cache-control': 'no-cache, no-transform',
+          connection: 'keep-alive',
+          'x-request-id': requestId,
+        });
+        let first: number | undefined;
+        try {
+          for await (const chunk of result.stream) {
+            first ??= Date.now();
+            if (!reply.raw.write(chunk))
+              await new Promise<void>((resolve) => reply.raw.once('drain', resolve));
+          }
+          reply.raw.end();
+          await writeLog(app, {
+            userId,
+            requestId,
+            incomingModel: request.model,
+            resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
+            apiFormat: attempt.resolved.model.apiFormat,
+            status: 200,
+            latencyMs: Date.now() - started,
+            timeToFirstTokenMs: first ? first - started : null,
+            fallbackCount: index,
+            skippedRoutes: skipped,
+          });
+        } catch {
+          reply.raw.destroy();
+          await writeLog(app, {
+            userId,
+            requestId,
+            incomingModel: request.model,
+            resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
+            apiFormat: attempt.resolved.model.apiFormat,
+            status: 502,
+            latencyMs: Date.now() - started,
+            fallbackCount: index,
+            errorCategory: 'stream_interrupted',
+            skippedRoutes: skipped,
+          });
+        }
+        return;
+      }
+      const body = result.body as Record<string, unknown>;
+      const usage = body.usage as Record<string, number> | undefined;
+      await writeLog(app, {
+        userId,
+        requestId,
+        incomingModel: request.model,
+        resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
+        apiFormat: attempt.resolved.model.apiFormat,
+        status: 200,
+        latencyMs: Date.now() - started,
+        inputTokens: usage?.input_tokens,
+        outputTokens: usage?.output_tokens,
+        fallbackCount: index,
+        skippedRoutes: skipped,
+      });
+      return reply.header('x-request-id', requestId).send(body);
+    } catch (error) {
+      failure =
+        error instanceof UpstreamFailure
+          ? error
+          : new UpstreamFailure(
+              'Could not connect to the upstream provider.',
+              502,
+              true,
+              'network_error',
+            );
+      if (!failure.fallbackable || index === attempts.length - 1) break;
+    }
+  }
+  const final =
+    failure ?? new UpstreamFailure('No upstream route succeeded.', 502, false, 'upstream_error');
+  await writeLog(app, {
+    userId,
+    requestId,
+    incomingModel: request.model,
+    status: final.status,
+    latencyMs: Date.now() - started,
+    fallbackCount: Math.max(0, attempts.length - 1),
+    errorCategory: final.category,
+    skippedRoutes: skipped,
+  });
+  return reply
+    .code(final.status)
+    .send(
+      anthropicError(
+        final.status === 429 ? 'rate_limit_error' : 'api_error',
+        final.message,
+        requestId,
+      ),
+    );
+}
+
+async function callModel(
+  app: FastifyInstance,
+  resolved: ResolvedModel,
+  request: AnthropicRequest,
+  clientModel: string,
+  clientSignal: AbortSignal,
+): Promise<{ body?: unknown; stream?: AsyncIterable<string | Uint8Array> }> {
+  const { model, connection } = resolved;
+  const endpoint = requestEndpoint(model, connection);
+  await validateUpstreamUrl(
+    endpoint,
+    app.config.ALLOW_PRIVATE_UPSTREAMS,
+    app.config.NODE_ENV === 'production',
+  );
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), app.config.UPSTREAM_TIMEOUT_MS);
+  const abort = () => controller.abort();
+  clientSignal.addEventListener('abort', abort, { once: true });
+  try {
+    const key = decryptCredential(connection, app.config.CREDENTIAL_ENCRYPTION_KEY);
+    let body: Record<string, unknown>;
+    let headers: Record<string, string>;
+    if (model.apiFormat === 'openai_compatible') {
+      const ruleRows = await app.db
+        .select()
+        .from(transformationRules)
+        .where(eq(transformationRules.upstreamModelId, model.id))
+        .orderBy(asc(transformationRules.position));
+      const rules = ruleRows.map((r) => ({
+        type: r.type,
+        enabled: r.enabled,
+        position: r.position,
+        config: r.configJson as Record<string, unknown>,
+      })) satisfies Rule[];
+      body = anthropicToOpenAI(request, model.upstreamModelId);
+      body = applyRules(body, rules, normalizeThinking(request.thinking));
+      headers = {
+        authorization: `Bearer ${key}`,
+        'content-type': 'application/json',
+        accept: request.stream ? 'text/event-stream' : 'application/json',
+      };
+    } else {
+      body = { ...request, model: model.upstreamModelId };
+      headers = {
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+        accept: request.stream ? 'text/event-stream' : 'application/json',
+      };
+    }
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+      redirect: 'error',
+    });
+    if (!response.ok)
+      throw new UpstreamFailure(
+        safeProviderMessage(response.status),
+        response.status,
+        fallbackStatuses.has(response.status),
+        response.status === 401 || response.status === 403
+          ? 'authentication_error'
+          : `upstream_${response.status}`,
+      );
+    if (request.stream) {
+      if (!response.body)
+        throw new UpstreamFailure(
+          'The upstream provider returned an empty stream.',
+          502,
+          true,
+          'empty_stream',
+        );
+      clearTimeout(timer);
+      clientSignal.removeEventListener('abort', abort);
+      return {
+        stream:
+          model.apiFormat === 'openai_compatible'
+            ? openAIStreamToAnthropic(parseSSE(response.body), clientModel)
+            : rawStream(response.body),
+      };
+    }
+    const json = (await response.json()) as Record<string, unknown>;
+    return {
+      body:
+        model.apiFormat === 'openai_compatible'
+          ? openAIToAnthropic(json, clientModel)
+          : { ...json, model: clientModel },
+    };
+  } catch (error) {
+    if (error instanceof UpstreamFailure) throw error;
+    throw new UpstreamFailure(
+      error instanceof Error && error.name === 'AbortError'
+        ? 'The upstream provider timed out.'
+        : 'Could not connect to the upstream provider.',
+      502,
+      true,
+      error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'network_error',
+    );
+  } finally {
+    clearTimeout(timer);
+    clientSignal.removeEventListener('abort', abort);
+  }
+}
+async function* rawStream(body: ReadableStream<Uint8Array>) {
+  const reader = body.getReader();
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      yield value;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function requestEndpoint(model: Model, connection: ProviderConnection) {
+  const defaultPath =
+    model.apiFormat === 'openai_compatible' ? '/chat/completions' : '/v1/messages';
+  return `${connection.baseUrl.replace(/\/+$/, '')}${model.requestPathOverride ?? `${model.providerBasePath}${defaultPath}`}`;
+}
+
+async function writeLog(app: FastifyInstance, values: typeof requestLogs.$inferInsert) {
+  await app.db.insert(requestLogs).values(values);
+}
+
+function requestSignal(request: IncomingMessage): AbortSignal {
+  const controller = new AbortController();
+  request.once('aborted', () => controller.abort());
+  return controller.signal;
+}

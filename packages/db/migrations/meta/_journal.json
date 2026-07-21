@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1784562308094,
+      "tag": "0000_good_owl",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784564300000,
+      "tag": "0001_provider_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784566200000,
+      "tag": "0002_connection_protocol_on_models",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784566800000,
+      "tag": "0003_binary_image_reasoning_capabilities",
+      "breakpoints": true
+    }
+  ]
+}
