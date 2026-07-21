@@ -73,7 +73,7 @@ export const anthropicRequestSchema = z
         z.object({
           name: z.string(),
           description: z.string().optional(),
-          input_schema: z.record(z.unknown()),
+          input_schema: z.record(z.unknown()).optional(),
         }),
       )
       .optional(),
