@@ -5,6 +5,15 @@ const imageBlock = z.object({
   type: z.literal('image'),
   source: z.object({ type: z.literal('base64'), media_type: z.string(), data: z.string() }),
 });
+const thinkingBlock = z.object({
+  type: z.literal('thinking'),
+  thinking: z.string(),
+  signature: z.string().optional(),
+});
+const redactedThinkingBlock = z.object({
+  type: z.literal('redacted_thinking'),
+  data: z.string(),
+});
 const toolUseBlock = z.object({
   type: z.literal('tool_use'),
   id: z.string(),
@@ -20,6 +29,8 @@ const toolResultBlock = z.object({
 export const contentBlockSchema = z.discriminatedUnion('type', [
   textBlock,
   imageBlock,
+  thinkingBlock,
+  redactedThinkingBlock,
   toolUseBlock,
   toolResultBlock,
 ]);

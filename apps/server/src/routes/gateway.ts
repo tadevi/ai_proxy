@@ -270,6 +270,14 @@ async function handleMessage(
     isRecord(raw) && typeof raw.model === 'string' ? raw.model.slice(0, 200) : 'unknown';
   const parsed = anthropicRequestSchema.safeParse(raw);
   if (!parsed.success) {
+    const validationErrors = parsed.error.issues.map((issue) => ({
+      path: issue.path.join('.'),
+      message: issue.message,
+    }));
+    app.log.warn(
+      { requestId, incomingModel, validationErrors },
+      'gateway request validation failed',
+    );
     await writeLog(app, {
       userId,
       requestId,
@@ -278,10 +286,7 @@ async function handleMessage(
       latencyMs: Date.now() - started,
       errorCategory: 'invalid_request',
       providerError: {
-        validationErrors: parsed.error.issues.map((issue) => ({
-          path: issue.path.join('.'),
-          message: issue.message,
-        })),
+        validationErrors,
       },
     });
     return reply
@@ -398,6 +403,17 @@ async function handleMessage(
               true,
               'network_error',
             );
+      app.log.warn(
+        {
+          requestId,
+          incomingModel: request.model,
+          resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
+          upstreamStatus: failure.status,
+          errorCategory: failure.category,
+          providerError: failure.providerError,
+        },
+        'upstream request failed',
+      );
       if (!failure.fallbackable || index === attempts.length - 1) break;
     }
   }

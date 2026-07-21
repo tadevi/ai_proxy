@@ -30,6 +30,23 @@ describe('protocol conversion', () => {
     expect(normalized.messages).toEqual([{ role: 'user', content: 'Hello' }]);
   });
 
+  it('accepts thinking blocks returned in a prior assistant turn', () => {
+    const parsed = anthropicRequestSchema.parse({
+      model: 'sonnet',
+      max_tokens: 100,
+      messages: [
+        {
+          role: 'assistant',
+          content: [{ type: 'thinking', thinking: 'I should add two numbers.', signature: '' }],
+        },
+        { role: 'user', content: 'Continue.' },
+      ],
+    });
+    expect(parsed.messages[0]?.content).toEqual([
+      { type: 'thinking', thinking: 'I should add two numbers.', signature: '' },
+    ]);
+  });
+
   it('converts Anthropic text, limits, and tools to OpenAI', () => {
     const body = anthropicToOpenAI(
       { ...request, tools: [{ name: 'weather', input_schema: { type: 'object' } }] },
