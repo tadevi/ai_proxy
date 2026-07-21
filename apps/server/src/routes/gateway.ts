@@ -30,12 +30,20 @@ type Model = typeof upstreamModels.$inferSelect;
 type ProviderConnection = typeof providerConnections.$inferSelect;
 type ResolvedModel = { model: Model; connection: ProviderConnection };
 type Attempt = { resolved: ResolvedModel; routeIndex: number };
+type ProviderErrorDetails = {
+  upstreamStatus: number;
+  type?: string;
+  code?: string | number;
+  message?: string;
+  requestId?: string;
+};
 class UpstreamFailure extends Error {
   constructor(
     message: string,
     readonly status: number,
     readonly fallbackable: boolean,
     readonly category: string,
+    readonly providerError?: ProviderErrorDetails,
   ) {
     super(message);
   }
@@ -47,6 +55,37 @@ const safeProviderMessage = (status: number) =>
     : status === 404
       ? 'The upstream endpoint or model was not found.'
       : `The upstream provider returned HTTP ${status}.`;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function safeString(value: unknown, maximum = 2_000) {
+  return typeof value === 'string' ? value.slice(0, maximum) : undefined;
+}
+
+async function readProviderError(response: Response): Promise<ProviderErrorDetails> {
+  const details: ProviderErrorDetails = { upstreamStatus: response.status };
+  const requestId =
+    response.headers.get('request-id') ??
+    response.headers.get('x-request-id') ??
+    response.headers.get('trace-id');
+  if (requestId) details.requestId = requestId.slice(0, 200);
+  try {
+    const body = JSON.parse(await response.text()) as unknown;
+    const error = isRecord(body) && isRecord(body.error) ? body.error : body;
+    if (!isRecord(error)) return details;
+    const type = safeString(error.type, 200);
+    const message = safeString(error.message);
+    const code = error.code;
+    if (type) details.type = type;
+    if (message) details.message = message;
+    if (typeof code === 'string' || typeof code === 'number') details.code = code;
+  } catch {
+    // Do not persist arbitrary non-JSON bodies because they can contain request data.
+  }
+  return details;
+}
 
 export async function gatewayRoutes(app: FastifyInstance) {
   app.get(
@@ -255,11 +294,13 @@ async function handleMessage(
       );
   }
   let failure: UpstreamFailure | undefined;
+  let lastAttempt: Attempt | undefined;
   let attemptedCount = 0;
   for (let index = 0; index < attempts.length; index++) {
     const attempt = attempts[index]!;
     try {
       attemptedCount++;
+      lastAttempt = attempt;
       const result = await callModel(app, attempt.resolved, request, request.model, signal);
       if (result.stream) {
         reply.hijack();
@@ -343,10 +384,13 @@ async function handleMessage(
     userId,
     requestId,
     incomingModel: request.model,
+    resolvedGatewayModel: lastAttempt?.resolved.model.gatewayModelId,
+    apiFormat: lastAttempt?.resolved.model.apiFormat,
     status: final.status,
     latencyMs: Date.now() - started,
     fallbackCount: Math.max(0, attemptedCount - 1),
     errorCategory: final.category,
+    providerError: final.providerError,
     skippedRoutes: skipped,
   });
   return reply
@@ -432,7 +476,8 @@ async function callModel(
       signal: controller.signal,
       redirect: 'error',
     });
-    if (!response.ok)
+    if (!response.ok) {
+      const providerError = await readProviderError(response);
       throw new UpstreamFailure(
         safeProviderMessage(response.status),
         response.status,
@@ -440,7 +485,9 @@ async function callModel(
         response.status === 401 || response.status === 403
           ? 'authentication_error'
           : `upstream_${response.status}`,
+        providerError,
       );
+    }
     if (request.stream) {
       if (!response.body)
         throw new UpstreamFailure(
@@ -507,7 +554,8 @@ async function* rawStream(body: ReadableStream<Uint8Array>, usage: StreamUsage) 
       const message = event.message as Record<string, unknown> | undefined;
       const eventUsage = (message?.usage ?? event.usage) as Record<string, unknown> | undefined;
       if (typeof eventUsage?.input_tokens === 'number') usage.inputTokens = eventUsage.input_tokens;
-      if (typeof eventUsage?.output_tokens === 'number') usage.outputTokens = eventUsage.output_tokens;
+      if (typeof eventUsage?.output_tokens === 'number')
+        usage.outputTokens = eventUsage.output_tokens;
     } catch {
       // Preserve malformed or non-JSON SSE data for the client without logging usage.
     }

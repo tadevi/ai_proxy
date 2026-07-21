@@ -162,6 +162,7 @@ export const requestLogs = pgTable(
     outputTokens: integer('output_tokens'),
     fallbackCount: integer('fallback_count').default(0).notNull(),
     errorCategory: text('error_category'),
+    providerError: jsonb('provider_error'),
     skippedRoutes: jsonb('skipped_routes'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },

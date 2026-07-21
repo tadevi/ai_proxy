@@ -158,8 +158,8 @@ describe('routing and streaming', () => {
       yield '[DONE]';
     }
     const usage: { inputTokens?: number; outputTokens?: number } = {};
-    for await (const _ of openAIStreamToAnthropic(source(), 'sonnet', 'msg_1', usage)) {
-      // Consume the stream.
+    for await (const chunk of openAIStreamToAnthropic(source(), 'sonnet', 'msg_1', usage)) {
+      void chunk;
     }
     expect(usage).toEqual({ inputTokens: 12, outputTokens: 3 });
   });

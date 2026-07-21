@@ -28,8 +28,10 @@ type Log = {
   outputTokens?: number;
   fallbackCount: number;
   errorCategory?: string;
+  providerError?: Record<string, unknown>;
 };
 export function Logs() {
+  const [selectedError, setSelectedError] = useState<Log | null>(null);
   const [filters, setFilters] = useState({
     requestId: '',
     model: '',
@@ -133,7 +135,20 @@ export function Logs() {
                   {formatTokens(l.inputTokens)} / {formatTokens(l.outputTokens)}
                 </td>
                 <td className="p-3">{l.fallbackCount}</td>
-                <td className="p-3 text-red-300">{l.errorCategory ?? '—'}</td>
+                <td className="p-3 text-red-300">
+                  {l.providerError ? (
+                    <button
+                      className="cursor-pointer underline decoration-red-400/50 underline-offset-4 hover:text-red-200"
+                      onClick={() => setSelectedError(l)}
+                      title="View provider error details"
+                      type="button"
+                    >
+                      {l.errorCategory ?? 'upstream_error'}
+                    </button>
+                  ) : (
+                    (l.errorCategory ?? '—')
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -142,6 +157,39 @@ export function Logs() {
           <p className="p-8 text-center text-zinc-400">No gateway requests yet.</p>
         )}
       </div>
+      {selectedError?.providerError && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
+          role="presentation"
+        >
+          <section
+            aria-labelledby="provider-error-title"
+            aria-modal="true"
+            className="card w-full max-w-2xl"
+            role="dialog"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-medium" id="provider-error-title">
+                  Provider error · {selectedError.errorCategory ?? 'upstream_error'}
+                </h2>
+                <p className="muted mt-1">Request {selectedError.requestId}</p>
+              </div>
+              <button
+                aria-label="Close provider error details"
+                className="btn"
+                onClick={() => setSelectedError(null)}
+                type="button"
+              >
+                Close
+              </button>
+            </div>
+            <pre className="mt-4 max-h-[60vh] overflow-auto rounded-lg bg-zinc-950 p-4 text-xs text-red-200">
+              {JSON.stringify(selectedError.providerError, null, 2)}
+            </pre>
+          </section>
+        </div>
+      )}
     </>
   );
 }

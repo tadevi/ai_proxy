@@ -170,10 +170,7 @@ function SortableRoute({
           ⠿
         </button>
         <span className="text-sm text-zinc-500">{index + 1}</span>
-        <span className="min-w-0 flex-1 truncate text-sm">
-          {route.displayName}
-          <span className="text-zinc-500"> — {route.providerConnectionName}</span>
-        </span>
+        <span className="min-w-0 flex-1 truncate text-sm">{route.displayName}</span>
         <button
           aria-checked={route.enabled}
           aria-label={`${route.enabled ? 'Disable' : 'Enable'} ${route.displayName}`}
@@ -205,7 +202,7 @@ function SortableRoute({
           </svg>
         </button>
       </div>
-      <p className="mt-1 truncate pl-10 font-mono text-xs text-zinc-500">{route.gatewayModelId}</p>
+      <p className="mt-1 truncate pl-10 text-xs text-zinc-500">{route.providerConnectionName}</p>
     </div>
   );
 }
