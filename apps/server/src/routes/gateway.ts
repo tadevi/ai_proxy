@@ -143,7 +143,7 @@ export async function gatewayRoutes(app: FastifyInstance) {
     { preHandler: (req, reply) => gatewayAuth(app, req, reply) },
     async (req) => {
       const models = await app.db
-        .select({ id: upstreamModels.gatewayModelId, createdAt: upstreamModels.createdAt })
+        .select({ id: upstreamModels.upstreamModelId, createdAt: upstreamModels.createdAt })
         .from(upstreamModels)
         .innerJoin(
           providerConnections,
@@ -193,7 +193,7 @@ export async function gatewayRoutes(app: FastifyInstance) {
       .limit(1);
     if (!row) return reply.code(404).send({ error: 'Model not found' });
     const test: AnthropicRequest = {
-      model: row.model.gatewayModelId,
+      model: row.model.upstreamModelId,
       max_tokens: 8,
       messages: [{ role: 'user', content: 'Reply with OK.' }],
       stream: false,
@@ -203,7 +203,7 @@ export async function gatewayRoutes(app: FastifyInstance) {
         app,
         row,
         test,
-        row.model.gatewayModelId,
+        row.model.upstreamModelId,
         requestSignal(req.raw),
       );
       await app.db
@@ -290,7 +290,7 @@ async function resolve(
       .where(
         and(
           eq(upstreamModels.userId, userId),
-          eq(upstreamModels.gatewayModelId, incoming),
+          eq(upstreamModels.upstreamModelId, incoming),
           eq(upstreamModels.enabled, true),
           eq(providerConnections.enabled, true),
           or(isNull(upstreamModels.cooldownUntil), lte(upstreamModels.cooldownUntil, new Date())),
@@ -308,7 +308,7 @@ async function resolve(
           ? 'images_unsupported'
           : 'images_capability_unknown'
         : null;
-    if (reason) skipped.push({ gatewayModelId: row.resolved.model.gatewayModelId, reason });
+    if (reason) skipped.push({ upstreamModelId: row.resolved.model.upstreamModelId, reason });
     else attempts.push({ resolved: row.resolved, routeIndex: row.position });
   }
   return { attempts, skipped };
@@ -406,7 +406,8 @@ async function handleMessage(
             userId,
             requestId,
             incomingModel: request.model,
-            resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
+            resolvedUpstreamModel: attempt.resolved.model.displayName,
+            resolvedUpstreamModelId: attempt.resolved.model.id,
             apiFormat: attempt.resolved.model.apiFormat,
             status: 200,
             latencyMs: Date.now() - started,
@@ -424,7 +425,8 @@ async function handleMessage(
             userId,
             requestId,
             incomingModel: request.model,
-            resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
+            resolvedUpstreamModel: attempt.resolved.model.displayName,
+            resolvedUpstreamModelId: attempt.resolved.model.id,
             apiFormat: attempt.resolved.model.apiFormat,
             status: 502,
             latencyMs: Date.now() - started,
@@ -445,7 +447,8 @@ async function handleMessage(
         userId,
         requestId,
         incomingModel: request.model,
-        resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
+        resolvedUpstreamModel: attempt.resolved.model.displayName,
+            resolvedUpstreamModelId: attempt.resolved.model.id,
         apiFormat: attempt.resolved.model.apiFormat,
         status: 200,
         latencyMs: Date.now() - started,
@@ -470,7 +473,8 @@ async function handleMessage(
       logWarn('upstream request failed', {
         requestId,
         incomingModel: request.model,
-        resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
+        resolvedUpstreamModel: attempt.resolved.model.displayName,
+            resolvedUpstreamModelId: attempt.resolved.model.id,
         upstreamStatus: failure.status,
         errorCategory: failure.category,
         providerError: failure.providerError,
@@ -480,12 +484,13 @@ async function handleMessage(
         requestContainsImages(request) && isImageCapabilityFailure(failure);
       if (imageRoutingFailure) {
         skipped.push({
-          gatewayModelId: attempt.resolved.model.gatewayModelId,
+          upstreamModelId: attempt.resolved.model.upstreamModelId,
           reason: 'images_unavailable_upstream',
         });
         logWarn('upstream has no image-capable endpoint available; trying the next image route', {
           requestId,
-          resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
+          resolvedUpstreamModel: attempt.resolved.model.displayName,
+            resolvedUpstreamModelId: attempt.resolved.model.id,
         });
       }
       if (cooldownStatuses.has(failure.status)) {
@@ -496,7 +501,8 @@ async function handleMessage(
           .where(eq(upstreamModels.id, attempt.resolved.model.id));
         logWarn('model placed in cooldown after upstream quota or access failure', {
           requestId,
-          resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
+          resolvedUpstreamModel: attempt.resolved.model.displayName,
+            resolvedUpstreamModelId: attempt.resolved.model.id,
           cooldownUntil: cooldownUntil.toISOString(),
         });
       }
@@ -507,7 +513,8 @@ async function handleMessage(
           .where(eq(upstreamModels.id, attempt.resolved.model.id));
         logWarn('model auto-disabled after upstream payment or auth failure', {
           requestId,
-          resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
+          resolvedUpstreamModel: attempt.resolved.model.displayName,
+            resolvedUpstreamModelId: attempt.resolved.model.id,
           status: failure.status,
         });
       }
@@ -524,7 +531,8 @@ async function handleMessage(
     userId,
     requestId,
     incomingModel: request.model,
-    resolvedGatewayModel: lastAttempt?.resolved.model.gatewayModelId,
+    resolvedUpstreamModel: lastAttempt?.resolved.model.displayName,
+    resolvedUpstreamModelId: lastAttempt?.resolved.model.id,
     apiFormat: lastAttempt?.resolved.model.apiFormat,
     status: final.status,
     latencyMs: Date.now() - started,
@@ -761,13 +769,13 @@ async function setModelError(app: FastifyInstance, modelId: string, failure: Ups
 async function writeLog(app: FastifyInstance, values: typeof requestLogs.$inferInsert) {
   await app.db.transaction(async (tx) => {
     await tx.insert(requestLogs).values(values);
-    if (!values.resolvedGatewayModel) return;
+    if (!values.resolvedUpstreamModelId) return;
     const usageDate = new Date().toISOString().slice(0, 10);
     await tx
       .insert(modelUsageDaily)
       .values({
         userId: values.userId,
-        gatewayModelId: values.resolvedGatewayModel,
+        upstreamModelId: values.resolvedUpstreamModelId,
         usageDate,
         requestCount: 1,
         inputTokens: values.inputTokens ?? 0,
@@ -775,7 +783,7 @@ async function writeLog(app: FastifyInstance, values: typeof requestLogs.$inferI
         cacheInputTokens: values.cacheInputTokens ?? 0,
       })
       .onConflictDoUpdate({
-        target: [modelUsageDaily.userId, modelUsageDaily.gatewayModelId, modelUsageDaily.usageDate],
+        target: [modelUsageDaily.userId, modelUsageDaily.upstreamModelId, modelUsageDaily.usageDate],
         set: {
           requestCount: sql`${modelUsageDaily.requestCount} + 1`,
           inputTokens: sql`${modelUsageDaily.inputTokens} + ${values.inputTokens ?? 0}`,

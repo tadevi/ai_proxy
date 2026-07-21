@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { decryptCredential, encryptCredential, hashSecret } from '../src/security.js';
-import { generateGatewayModelId } from '../src/routes/dashboard.js';
 import { requestContainsImages, safeProviderErrorBody } from '../src/routes/gateway.js';
 import { anthropicRequestSchema } from '@gateway/protocol';
 
@@ -17,13 +16,6 @@ describe('security primitives', () => {
   it('hashes gateway credentials deterministically without retaining plaintext', () => {
     expect(hashSecret('gw_secret')).toBe(hashSecret('gw_secret'));
     expect(hashSecret('gw_secret')).not.toContain('gw_secret');
-  });
-
-  it('generates slugged model IDs with non-numeric random suffixes', () => {
-    const first = generateGatewayModelId('MiMo 2.5 Pro');
-    const second = generateGatewayModelId('MiMo 2.5 Pro');
-    expect(first).toMatch(/^mimo-2-5-pro-[a-z0-9]{6}$/);
-    expect(first).not.toBe(second);
   });
 
   it('detects images in content and tool results, but not arbitrary tool input', () => {

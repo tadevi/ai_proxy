@@ -79,7 +79,6 @@ export const upstreamModels = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     displayName: text('display_name').notNull(),
-    gatewayModelId: text('gateway_model_id').notNull().unique(),
     upstreamModelId: text('upstream_model_id').notNull(),
     providerConnectionId: uuid('provider_connection_id')
       .notNull()
@@ -104,7 +103,6 @@ export const upstreamModels = pgTable(
   },
   (t) => [
     index('models_user_idx').on(t.userId),
-    unique('models_user_gateway_unique').on(t.userId, t.gatewayModelId),
     unique('models_connection_upstream_unique').on(t.providerConnectionId, t.upstreamModelId),
   ],
 );
@@ -175,7 +173,8 @@ export const requestLogs = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     requestId: text('request_id').notNull(),
     incomingModel: text('incoming_model').notNull(),
-    resolvedGatewayModel: text('resolved_gateway_model'),
+    resolvedUpstreamModel: text('resolved_upstream_model'),
+    resolvedUpstreamModelId: uuid('resolved_upstream_model_id'),
     apiFormat: apiFormat('api_format'),
     status: integer('status').notNull(),
     latencyMs: integer('latency_ms').notNull(),
@@ -202,7 +201,9 @@ export const modelUsageDaily = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    gatewayModelId: text('gateway_model_id').notNull(),
+    upstreamModelId: uuid('upstream_model_id')
+      .notNull()
+      .references(() => upstreamModels.id, { onDelete: 'cascade' }),
     usageDate: date('usage_date').notNull(),
     requestCount: bigint('request_count', { mode: 'number' }).default(0).notNull(),
     inputTokens: bigint('input_tokens', { mode: 'number' }).default(0).notNull(),
@@ -210,7 +211,7 @@ export const modelUsageDaily = pgTable(
     cacheInputTokens: bigint('cache_input_tokens', { mode: 'number' }).default(0).notNull(),
   },
   (t) => [
-    unique('model_usage_daily_unique').on(t.userId, t.gatewayModelId, t.usageDate),
-    index('model_usage_daily_user_model_idx').on(t.userId, t.gatewayModelId),
+    unique('model_usage_daily_unique').on(t.userId, t.upstreamModelId, t.usageDate),
+    index('model_usage_daily_user_model_idx').on(t.userId, t.upstreamModelId),
   ],
 );

@@ -19,7 +19,7 @@ type Log = {
   createdAt: string;
   requestId: string;
   incomingModel: string;
-  resolvedGatewayModel?: string;
+  resolvedUpstreamModel?: string;
   apiFormat?: string;
   status: number;
   latencyMs: number;
@@ -154,7 +154,7 @@ export function Logs() {
                 <td className="p-3">
                   {l.incomingModel}
                   <br />
-                  <span className="text-zinc-500">{l.resolvedGatewayModel ?? '—'}</span>
+                  <span className="text-zinc-500">{l.resolvedUpstreamModel ?? '—'}</span>
                 </td>
                 <td className="p-3">{l.apiFormat === 'anthropic_compatible' ? 'Anthropic' : l.apiFormat === 'openai_compatible' ? 'OpenAI' : '—'}</td>
                 <td className="p-3">{l.status}</td>

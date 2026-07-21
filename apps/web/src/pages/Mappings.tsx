@@ -83,7 +83,7 @@ function MappingCard({
         position: mapping.routes.length,
         displayName: m.displayName,
         providerConnectionName: m.providerConnectionName,
-        gatewayModelId: m.gatewayModelId,
+        upstreamModelId: m.upstreamModelId,
         latestTestStatus: m.latestTestStatus,
       },
     ]);

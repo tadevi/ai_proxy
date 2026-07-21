@@ -40,7 +40,6 @@ const safeConnection = {
 const safeModel = {
   id: upstreamModels.id,
   displayName: upstreamModels.displayName,
-  gatewayModelId: upstreamModels.gatewayModelId,
   upstreamModelId: upstreamModels.upstreamModelId,
   providerConnectionId: upstreamModels.providerConnectionId,
   providerConnectionName: providerConnections.displayName,
@@ -70,11 +69,6 @@ const slug = (value: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 45) || 'model';
-export const generateGatewayModelId = (name: string) =>
-  `${slug(name)}-${randomToken()
-    .replace(/[^a-z0-9]/gi, '')
-    .toLowerCase()
-    .slice(0, 6)}`;
 
 export async function dashboardRoutes(app: FastifyInstance) {
   app.post('/api/auth/register', async (req, reply) => {
@@ -274,7 +268,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
   app.get('/api/models/usage', async (req) =>
     app.db
       .select({
-        gatewayModelId: modelUsageDaily.gatewayModelId,
+        upstreamModelId: modelUsageDaily.upstreamModelId,
         requestCount: sql<string>`coalesce(sum(${modelUsageDaily.requestCount}), 0)::text`,
         inputTokens: sql<string>`coalesce(sum(${modelUsageDaily.inputTokens}), 0)::text`,
         outputTokens: sql<string>`coalesce(sum(${modelUsageDaily.outputTokens}), 0)::text`,
@@ -282,7 +276,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
       })
       .from(modelUsageDaily)
       .where(eq(modelUsageDaily.userId, req.dashboardUser!.id))
-      .groupBy(modelUsageDaily.gatewayModelId),
+      .groupBy(modelUsageDaily.upstreamModelId),
   );
   app.post('/api/models', async (req, reply) => {
     const input = modelInputSchema.parse(req.body);
@@ -295,7 +289,6 @@ export async function dashboardRoutes(app: FastifyInstance) {
         .values({
           ...input,
           userId: req.dashboardUser!.id,
-          gatewayModelId: generateGatewayModelId(input.displayName),
         })
         .returning({ id: upstreamModels.id });
       return reply.code(201).send((await getModel(app, req.dashboardUser!.id, created!.id))!);
@@ -399,7 +392,6 @@ export async function dashboardRoutes(app: FastifyInstance) {
         .values({
           userId: req.dashboardUser!.id,
           displayName,
-          gatewayModelId: generateGatewayModelId(displayName),
           upstreamModelId: preset.upstreamModelId,
           providerConnectionId: input.providerConnectionId,
           apiFormat: preset.apiFormat,
@@ -429,7 +421,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
         position: mappingRoutes.position,
         displayName: upstreamModels.displayName,
         providerConnectionName: providerConnections.displayName,
-        gatewayModelId: upstreamModels.gatewayModelId,
+        upstreamModelId: upstreamModels.upstreamModelId,
         latestTestStatus: upstreamModels.latestTestStatus,
       })
       .from(mappings)

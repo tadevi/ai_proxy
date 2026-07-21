@@ -57,7 +57,7 @@ function latestErrorMessage(error?: Record<string, unknown> | null) {
 }
 
 type ModelUsage = {
-  gatewayModelId: string;
+  upstreamModelId: string;
   requestCount: string;
   inputTokens: string;
   outputTokens: string;
@@ -104,7 +104,7 @@ export function Models() {
     queryFn: () => api<ModelUsage[]>('/api/models/usage'),
     refetchInterval: 10_000,
   });
-  const usageByModel = new Map(usage.data?.map((item) => [item.gatewayModelId, item]));
+  const usageByModel = new Map(usage.data?.map((item) => [item.upstreamModelId, item]));
   const save = useMutation({
     mutationFn: (v: Form) =>
       api(`/api/models${editing ? `/${editing.id}` : ''}`, {
@@ -416,7 +416,7 @@ export function Models() {
                 </thead>
                 <tbody>
                   {filtered.map((m) => {
-                    const modelUsage = usageByModel.get(m.gatewayModelId);
+                    const modelUsage = usageByModel.get(m.id);
                     return (
                       <tr className="border-b border-zinc-800/50 hover:bg-zinc-800/30" key={m.id}>
                         <td className="px-4 py-3">
@@ -437,7 +437,7 @@ export function Models() {
                             <div className="min-w-0">
                               <div className="truncate font-medium">{m.displayName}</div>
                               <div className="truncate font-mono text-[11px] text-zinc-500">
-                                {m.gatewayModelId}
+                                {m.upstreamModelId}
                               </div>
                             </div>
                           </div>
@@ -520,14 +520,14 @@ export function Models() {
         return (
           <div className="grid gap-4">
             {filtered.map((m) => {
-              const modelUsage = usageByModel.get(m.gatewayModelId);
+              const modelUsage = usageByModel.get(m.id);
               return (
                 <div className="card overflow-hidden p-0" key={m.id}>
                   <div className="p-5">
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div className="flex flex-wrap items-baseline gap-2">
                         <h2 className="font-mono text-lg font-medium">{m.displayName}</h2>
-                        <span className="font-mono text-[13px] text-zinc-500">(id: {m.gatewayModelId})</span>
+                        <span className="font-mono text-[13px] text-zinc-500">{m.upstreamModelId}</span>
                       </div>
                       <div className="flex shrink-0 flex-wrap items-center gap-2">
                         <button

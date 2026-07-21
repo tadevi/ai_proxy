@@ -27,19 +27,19 @@ export async function buildApp(config: Config) {
   try {
     await db.execute(sql`
       INSERT INTO model_usage_daily (
-        user_id, gateway_model_id, usage_date, request_count, input_tokens, output_tokens
+        user_id, upstream_model_id, usage_date, request_count, input_tokens, output_tokens
       )
       SELECT
         user_id,
-        resolved_gateway_model,
+        resolved_upstream_model_id,
         created_at::date,
         count(*)::bigint,
         coalesce(sum(input_tokens), 0)::bigint,
         coalesce(sum(output_tokens), 0)::bigint
       FROM request_logs
-      WHERE resolved_gateway_model IS NOT NULL
-      GROUP BY user_id, resolved_gateway_model, created_at::date
-      ON CONFLICT (user_id, gateway_model_id, usage_date) DO UPDATE SET
+      WHERE resolved_upstream_model_id IS NOT NULL
+      GROUP BY user_id, resolved_upstream_model_id, created_at::date
+      ON CONFLICT (user_id, upstream_model_id, usage_date) DO UPDATE SET
         request_count = EXCLUDED.request_count,
         input_tokens = EXCLUDED.input_tokens,
         output_tokens = EXCLUDED.output_tokens

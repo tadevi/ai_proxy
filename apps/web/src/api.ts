@@ -19,7 +19,6 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export type Model = {
   id: string;
   displayName: string;
-  gatewayModelId: string;
   upstreamModelId: string;
   providerConnectionId: string;
   providerConnectionName: string;
@@ -63,6 +62,6 @@ export type Route = {
   position: number;
   displayName: string;
   providerConnectionName: string;
-  gatewayModelId: string;
+  upstreamModelId: string;
   latestTestStatus?: string;
 };
