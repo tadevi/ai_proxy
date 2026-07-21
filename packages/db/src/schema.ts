@@ -105,6 +105,7 @@ export const upstreamModels = pgTable(
   (t) => [
     index('models_user_idx').on(t.userId),
     unique('models_user_gateway_unique').on(t.userId, t.gatewayModelId),
+    unique('models_connection_upstream_unique').on(t.providerConnectionId, t.upstreamModelId),
   ],
 );
 export const modelPresets = pgTable(

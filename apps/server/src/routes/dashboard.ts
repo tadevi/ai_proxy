@@ -289,15 +289,21 @@ export async function dashboardRoutes(app: FastifyInstance) {
     if (!(await ownsConnection(app, req.dashboardUser!.id, input.providerConnectionId))) {
       return reply.code(403).send({ error: 'Provider connection not found' });
     }
-    const [created] = await app.db
-      .insert(upstreamModels)
-      .values({
-        ...input,
-        userId: req.dashboardUser!.id,
-        gatewayModelId: generateGatewayModelId(input.displayName),
-      })
-      .returning({ id: upstreamModels.id });
-    return reply.code(201).send((await getModel(app, req.dashboardUser!.id, created!.id))!);
+    try {
+      const [created] = await app.db
+        .insert(upstreamModels)
+        .values({
+          ...input,
+          userId: req.dashboardUser!.id,
+          gatewayModelId: generateGatewayModelId(input.displayName),
+        })
+        .returning({ id: upstreamModels.id });
+      return reply.code(201).send((await getModel(app, req.dashboardUser!.id, created!.id))!);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('23505'))
+        return reply.code(409).send({ error: 'This upstream model ID already exists on this connection.' });
+      throw error;
+    }
   });
   app.patch('/api/models/:id', async (req, reply) => {
     const input = modelInputSchema.partial().parse(req.body);
@@ -387,22 +393,28 @@ export async function dashboardRoutes(app: FastifyInstance) {
       .limit(1);
     if (!preset) return reply.code(404).send({ error: 'Preset not found' });
     const displayName = input.displayName ?? preset.displayName;
-    const [created] = await app.db
-      .insert(upstreamModels)
-      .values({
-        userId: req.dashboardUser!.id,
-        displayName,
-        gatewayModelId: generateGatewayModelId(displayName),
-        upstreamModelId: preset.upstreamModelId,
-        providerConnectionId: input.providerConnectionId,
-        apiFormat: preset.apiFormat,
-        providerBasePath: input.providerBasePath,
-        supportsImages: preset.supportsImages as 'yes' | 'no',
-        supportsReasoning: preset.supportsReasoning as 'yes' | 'no',
-        maxOutputTokens: preset.maxOutputTokens,
-      })
-      .returning({ id: upstreamModels.id });
-    return reply.code(201).send((await getModel(app, req.dashboardUser!.id, created!.id))!);
+    try {
+      const [created] = await app.db
+        .insert(upstreamModels)
+        .values({
+          userId: req.dashboardUser!.id,
+          displayName,
+          gatewayModelId: generateGatewayModelId(displayName),
+          upstreamModelId: preset.upstreamModelId,
+          providerConnectionId: input.providerConnectionId,
+          apiFormat: preset.apiFormat,
+          providerBasePath: input.providerBasePath,
+          supportsImages: preset.supportsImages as 'yes' | 'no',
+          supportsReasoning: preset.supportsReasoning as 'yes' | 'no',
+          maxOutputTokens: preset.maxOutputTokens,
+        })
+        .returning({ id: upstreamModels.id });
+      return reply.code(201).send((await getModel(app, req.dashboardUser!.id, created!.id))!);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('23505'))
+        return reply.code(409).send({ error: 'This upstream model ID already exists on this connection.' });
+      throw error;
+    }
   });
 
   app.get('/api/mappings', async (req) => {

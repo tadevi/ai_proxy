@@ -1,0 +1,1 @@
+ALTER TABLE "upstream_models" ADD CONSTRAINT "models_connection_upstream_unique" UNIQUE("provider_connection_id","upstream_model_id");
