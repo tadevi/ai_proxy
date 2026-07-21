@@ -445,20 +445,16 @@ async function handleMessage(
         'upstream request failed',
       );
       await setModelError(app, attempt.resolved.model.id, failure);
-      const imageCapabilityFailure =
+      const imageRoutingFailure =
         requestContainsImages(request) && isImageCapabilityFailure(failure);
-      if (imageCapabilityFailure) {
-        await app.db
-          .update(upstreamModels)
-          .set({ supportsImages: 'no', updatedAt: new Date() })
-          .where(eq(upstreamModels.id, attempt.resolved.model.id));
+      if (imageRoutingFailure) {
         skipped.push({
           gatewayModelId: attempt.resolved.model.gatewayModelId,
-          reason: 'images_unsupported_by_upstream',
+          reason: 'images_unavailable_upstream',
         });
         app.log.warn(
           { requestId, resolvedGatewayModel: attempt.resolved.model.gatewayModelId },
-          'model disabled for image requests after upstream capability rejection',
+          'upstream has no image-capable endpoint available; trying the next image route',
         );
       }
       if (cooldownStatuses.has(failure.status)) {
@@ -477,9 +473,7 @@ async function handleMessage(
         );
       }
       if (
-        (!failure.fallbackable &&
-          !cooldownStatuses.has(failure.status) &&
-          !imageCapabilityFailure) ||
+        (!failure.fallbackable && !cooldownStatuses.has(failure.status) && !imageRoutingFailure) ||
         index === attempts.length - 1
       )
         break;
