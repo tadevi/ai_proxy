@@ -144,7 +144,11 @@ function ConnectionForm({
       : defaults,
   });
   return (
-    <form className="card mb-6 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit(onSave)}>
+    <form
+      autoComplete="off"
+      className="card mb-6 grid gap-4 md:grid-cols-2"
+      onSubmit={handleSubmit(onSave)}
+    >
       <h2 className="text-lg font-medium md:col-span-2">
         {initial ? 'Edit connection' : 'Add connection'}
       </h2>
@@ -164,7 +168,13 @@ function ConnectionForm({
         <span className="label">
           {initial ? 'Replace API key (leave blank to retain)' : 'API key'}
         </span>
-        <input className="input" type="password" {...register('apiKey', { required: !initial })} />
+        <input
+          autoComplete="new-password"
+          className="input"
+          spellCheck={false}
+          type="password"
+          {...register('apiKey', { required: !initial })}
+        />
       </label>
       <label className="flex items-center gap-2 pt-7">
         <input type="checkbox" {...register('enabled')} /> Enabled
