@@ -51,6 +51,7 @@ class UpstreamFailure extends Error {
 const fallbackStatuses = new Set([429, 500, 502, 503, 504]);
 const cooldownStatuses = new Set([403]);
 const disableStatuses = new Set([401, 402]);
+const disableErrorTypes = new Set(['insufficient_balance', 'quota_exceeded', 'billing_error']);
 const cooldownDurationMs = 60 * 60 * 1_000;
 const safeProviderMessage = (status: number) =>
   status === 401 || status === 403
@@ -81,6 +82,12 @@ function isImageCapabilityFailure(failure: UpstreamFailure) {
   if (failure.status !== 404) return false;
   const detail = JSON.stringify(failure.providerError ?? {}).toLowerCase();
   return detail.includes('image') && /(no endpoints?|not support|unsupported)/.test(detail);
+}
+
+function isDisableError(status: number, providerError?: ProviderErrorDetails): boolean {
+  if (disableStatuses.has(status)) return true;
+  const type = (providerError?.response as Record<string, unknown> | undefined)?.type;
+  return typeof type === 'string' && disableErrorTypes.has(type);
 }
 
 export function safeProviderErrorBody(value: unknown): Record<string, unknown> {
@@ -493,7 +500,7 @@ async function handleMessage(
           cooldownUntil: cooldownUntil.toISOString(),
         });
       }
-      if (disableStatuses.has(failure.status)) {
+      if (isDisableError(failure.status, failure.providerError)) {
         await app.db
           .update(upstreamModels)
           .set({ enabled: false, updatedAt: new Date() })
@@ -617,8 +624,8 @@ async function callModel(
       throw new UpstreamFailure(
         safeProviderMessage(response.status),
         response.status,
-        fallbackStatuses.has(response.status) || cooldownStatuses.has(response.status) || disableStatuses.has(response.status),
-        disableStatuses.has(response.status)
+        fallbackStatuses.has(response.status) || cooldownStatuses.has(response.status) || isDisableError(response.status, providerError),
+        isDisableError(response.status, providerError)
           ? 'disabled_upstream'
           : response.status === 401 || response.status === 403
             ? 'authentication_error'
