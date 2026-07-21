@@ -61,11 +61,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function containsImage(value: unknown, depth = 0): boolean {
+  if (depth > 12 || value === null || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some((item) => containsImage(item, depth + 1));
+  const record = value as Record<string, unknown>;
+  if (record.type === 'image' || record.type === 'image_url' || record.type === 'input_image')
+    return true;
+  return Object.values(record).some((item) => containsImage(item, depth + 1));
+}
+
 function requestContainsImages(request: AnthropicRequest) {
-  return request.messages.some(
-    (message) =>
-      Array.isArray(message.content) && message.content.some((block) => block.type === 'image'),
-  );
+  return request.messages.some((message) => containsImage(message.content));
 }
 
 function isImageCapabilityFailure(failure: UpstreamFailure) {
