@@ -64,27 +64,7 @@ export const anthropicRequestSchema = z
       )
       .min(1),
     max_tokens: z.number().int().positive().max(1_000_000),
-    temperature: z.number().min(0).max(2).optional(),
-    top_p: z.number().min(0).max(1).optional(),
-    stop_sequences: z.array(z.string()).optional(),
     stream: z.boolean().default(false),
-    tools: z
-      .array(
-        z.object({
-          name: z.string(),
-          description: z.string().optional(),
-          input_schema: z.record(z.unknown()).optional(),
-        }),
-      )
-      .optional(),
-    tool_choice: z
-      .union([
-        z.object({ type: z.literal('auto') }),
-        z.object({ type: z.literal('any') }),
-        z.object({ type: z.literal('tool'), name: z.string() }),
-      ])
-      .optional(),
-    metadata: z.record(z.unknown()).optional(),
     thinking: z.record(z.unknown()).optional(),
   })
   .passthrough();

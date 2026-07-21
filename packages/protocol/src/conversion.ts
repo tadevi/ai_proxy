@@ -124,25 +124,28 @@ export function anthropicToOpenAI(request: AnthropicRequest, upstreamModel: stri
       }
     }
   }
+  const raw = request as Record<string, unknown>;
   const body: Json = {
     model: upstreamModel,
     messages,
     max_tokens: request.max_tokens,
     stream: request.stream,
   };
-  if (request.temperature !== undefined) body.temperature = request.temperature;
-  if (request.top_p !== undefined) body.top_p = request.top_p;
-  if (request.stop_sequences) body.stop = request.stop_sequences;
-  if (request.tools)
-    body.tools = request.tools.map((t) => ({
+  if (raw.temperature !== undefined) body.temperature = raw.temperature;
+  if (raw.top_p !== undefined) body.top_p = raw.top_p;
+  if (raw.stop_sequences) body.stop = raw.stop_sequences;
+  const tools = raw.tools as Array<Record<string, unknown>> | undefined;
+  if (tools)
+    body.tools = tools.map((t) => ({
       type: 'function',
       function: { name: t.name, description: t.description, parameters: t.input_schema },
     }));
-  if (request.tool_choice)
+  const toolChoice = raw.tool_choice as Record<string, unknown> | undefined;
+  if (toolChoice)
     body.tool_choice =
-      request.tool_choice.type === 'tool'
-        ? { type: 'function', function: { name: request.tool_choice.name } }
-        : request.tool_choice.type === 'any'
+      toolChoice.type === 'tool'
+        ? { type: 'function', function: { name: toolChoice.name } }
+        : toolChoice.type === 'any'
           ? 'required'
           : 'auto';
   return body;
