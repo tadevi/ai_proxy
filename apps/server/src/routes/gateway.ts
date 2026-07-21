@@ -50,6 +50,7 @@ class UpstreamFailure extends Error {
 }
 const fallbackStatuses = new Set([429, 500, 502, 503, 504]);
 const cooldownStatuses = new Set([403]);
+const disableStatuses = new Set([401, 402]);
 const cooldownDurationMs = 60 * 60 * 1_000;
 const safeProviderMessage = (status: number) =>
   status === 401 || status === 403
@@ -492,6 +493,17 @@ async function handleMessage(
           cooldownUntil: cooldownUntil.toISOString(),
         });
       }
+      if (disableStatuses.has(failure.status)) {
+        await app.db
+          .update(upstreamModels)
+          .set({ enabled: false, updatedAt: new Date() })
+          .where(eq(upstreamModels.id, attempt.resolved.model.id));
+        logWarn('model auto-disabled after upstream payment or auth failure', {
+          requestId,
+          resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
+          status: failure.status,
+        });
+      }
       if (
         (!failure.fallbackable && !cooldownStatuses.has(failure.status) && !imageRoutingFailure) ||
         index === attempts.length - 1
@@ -605,10 +617,12 @@ async function callModel(
       throw new UpstreamFailure(
         safeProviderMessage(response.status),
         response.status,
-        fallbackStatuses.has(response.status) || cooldownStatuses.has(response.status),
-        response.status === 401 || response.status === 403
-          ? 'authentication_error'
-          : `upstream_${response.status}`,
+        fallbackStatuses.has(response.status) || cooldownStatuses.has(response.status) || disableStatuses.has(response.status),
+        disableStatuses.has(response.status)
+          ? 'disabled_upstream'
+          : response.status === 401 || response.status === 403
+            ? 'authentication_error'
+            : `upstream_${response.status}`,
         providerError,
       );
     }
