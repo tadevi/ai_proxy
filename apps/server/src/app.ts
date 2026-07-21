@@ -5,7 +5,7 @@ import staticPlugin from '@fastify/static';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { ZodError } from 'zod';
-import { lt, sql } from 'drizzle-orm';
+import { lt } from 'drizzle-orm';
 import { createDb, requestLogs } from '@gateway/db';
 import type { Config } from './config.js';
 import { dashboardRoutes } from './routes/dashboard.js';
@@ -24,31 +24,6 @@ export async function buildApp(config: Config) {
   const { db, pool } = createDb(config.DATABASE_URL, databaseTls(config));
   app.decorate('db', db);
   app.decorate('config', config);
-  try {
-    await db.execute(sql`
-      INSERT INTO model_usage_daily (
-        user_id, upstream_model_id, usage_date, request_count, input_tokens, output_tokens
-      )
-      SELECT
-        user_id,
-        resolved_upstream_model_id,
-        created_at::date,
-        count(*)::bigint,
-        coalesce(sum(input_tokens), 0)::bigint,
-        coalesce(sum(output_tokens), 0)::bigint
-      FROM request_logs
-      WHERE resolved_upstream_model_id IS NOT NULL
-      GROUP BY user_id, resolved_upstream_model_id, created_at::date
-      ON CONFLICT (user_id, upstream_model_id, usage_date) DO UPDATE SET
-        request_count = EXCLUDED.request_count,
-        input_tokens = EXCLUDED.input_tokens,
-        output_tokens = EXCLUDED.output_tokens
-    `);
-  } catch (error) {
-    logWarn('usage summary reconciliation failed', {
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
   const pruneLogs = async () => {
     const cutoff = new Date(Date.now() - config.LOG_RETENTION_DAYS * 86_400_000);
     await db.delete(requestLogs).where(lt(requestLogs.createdAt, cutoff));

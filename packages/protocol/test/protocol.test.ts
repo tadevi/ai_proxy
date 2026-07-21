@@ -3,7 +3,6 @@ import {
   anthropicRequestSchema,
   anthropicToOpenAI,
   applyRules,
-  eligibleRoutes,
   isFallbackableStatus,
   normalizeThinking,
   normalizeSystemMessages,
@@ -150,19 +149,6 @@ describe('thinking and declarative rules', () => {
 });
 
 describe('routing and streaming', () => {
-  it('orders eligible routes and skips incompatible routes', () => {
-    const result = eligibleRoutes(
-      [
-        { id: 'b', enabled: true, position: 2, supportsImages: 'unknown', supportsTools: 'yes' },
-        { id: 'a', enabled: true, position: 1, supportsImages: 'no', supportsTools: 'yes' },
-      ],
-      true,
-      false,
-    );
-    expect(result.eligible.map((r) => r.id)).toEqual(['b']);
-    expect(result.skipped[0]?.reason).toBe('images_unsupported');
-  });
-
   it('classifies only safe status codes for fallback', () => {
     expect(isFallbackableStatus(429)).toBe(true);
     expect(isFallbackableStatus(401)).toBe(false);

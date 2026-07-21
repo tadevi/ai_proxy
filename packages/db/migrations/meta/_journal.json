@@ -78,6 +78,13 @@
       "when": 1784635000000,
       "tag": "0010_connection_centric",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784640000000,
+      "tag": "0011_fix_multi_token_model_uniqueness",
+      "breakpoints": true
     }
   ]
 }

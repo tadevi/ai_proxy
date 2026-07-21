@@ -336,25 +336,16 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const tokenId = (req.params as { tokenId: string }).tokenId;
     if (!(await ownsConnection(app, req.dashboardUser!.id, connectionId)))
       return reply.code(404).send({ error: 'Provider connection not found' });
-    // Find upstream_models to delete
-    const affectedModels = await app.db
-      .select({ id: upstreamModels.id })
-      .from(upstreamModels)
+    // upstream_models.token_id only sets null on token deletion (not cascade), so models
+    // tied to this token must be deleted explicitly; mapping_routes then cascades from that.
+    await app.db
+      .delete(upstreamModels)
       .where(
         and(
           eq(upstreamModels.tokenId, tokenId),
           eq(upstreamModels.userId, req.dashboardUser!.id),
         ),
       );
-    const modelIds = affectedModels.map((m) => m.id);
-    if (modelIds.length) {
-      await app.db
-        .delete(mappingRoutes)
-        .where(inArray(mappingRoutes.upstreamModelId, modelIds));
-      await app.db
-        .delete(upstreamModels)
-        .where(inArray(upstreamModels.id, modelIds));
-    }
     const [token] = await app.db
       .delete(connectionTokens)
       .where(
@@ -446,25 +437,17 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const bindingId = (req.params as { bindingId: string }).bindingId;
     if (!(await ownsConnection(app, req.dashboardUser!.id, connectionId)))
       return reply.code(404).send({ error: 'Provider connection not found' });
-    // Find upstream_models to delete
-    const affectedModels = await app.db
-      .select({ id: upstreamModels.id })
-      .from(upstreamModels)
+    // upstream_models.binding_id only sets null on binding deletion (not cascade), so
+    // models tied to this binding must be deleted explicitly; mapping_routes then
+    // cascades from that.
+    await app.db
+      .delete(upstreamModels)
       .where(
         and(
           eq(upstreamModels.bindingId, bindingId),
           eq(upstreamModels.userId, req.dashboardUser!.id),
         ),
       );
-    const modelIds = affectedModels.map((m) => m.id);
-    if (modelIds.length) {
-      await app.db
-        .delete(mappingRoutes)
-        .where(inArray(mappingRoutes.upstreamModelId, modelIds));
-      await app.db
-        .delete(upstreamModels)
-        .where(inArray(upstreamModels.id, modelIds));
-    }
     const [binding] = await app.db
       .delete(modelBindings)
       .where(
@@ -880,7 +863,8 @@ async function createUpstreamModelsForToken(
         supportsReasoning: preset.supportsReasoning as 'yes' | 'no',
         maxOutputTokens: preset.maxOutputTokens,
       });
-    } catch {
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('23505')) throw error;
       // Unique constraint violation — model already exists, skip
     }
   }
@@ -930,7 +914,8 @@ async function createUpstreamModelsForBinding(
         supportsReasoning: preset.supportsReasoning as 'yes' | 'no',
         maxOutputTokens: preset.maxOutputTokens,
       });
-    } catch {
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('23505')) throw error;
       // Unique constraint violation — model already exists, skip
     }
   }

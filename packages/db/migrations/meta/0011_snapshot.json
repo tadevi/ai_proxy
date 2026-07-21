@@ -1,9 +1,158 @@
 {
-  "id": "d3d6f208-83ae-490b-97ee-0940668064ae",
-  "prevId": "9954b2ff-0008-4903-9c1f-4a26876ba952",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "public.connection_tokens": {
+      "name": "connection_tokens",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "encrypted_api_key": {
+          "name": "encrypted_api_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "encryption_iv": {
+          "name": "encryption_iv",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "encryption_auth_tag": {
+          "name": "encryption_auth_tag",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "encryption_key_version": {
+          "name": "encryption_key_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "tokens_user_idx": {
+          "name": "tokens_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tokens_connection_idx": {
+          "name": "tokens_connection_idx",
+          "columns": [
+            {
+              "expression": "connection_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "connection_tokens_user_id_users_id_fk": {
+          "name": "connection_tokens_user_id_users_id_fk",
+          "tableFrom": "connection_tokens",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "connection_tokens_connection_id_provider_connections_id_fk": {
+          "name": "connection_tokens_connection_id_provider_connections_id_fk",
+          "tableFrom": "connection_tokens",
+          "tableTo": "provider_connections",
+          "columnsFrom": [
+            "connection_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "tokens_connection_name_unique": {
+          "name": "tokens_connection_name_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "connection_id",
+            "name"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.gateway_keys": {
       "name": "gateway_keys",
       "schema": "",
@@ -269,6 +418,153 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.model_bindings": {
+      "name": "model_bindings",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "preset_id": {
+          "name": "preset_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "api_format": {
+          "name": "api_format",
+          "type": "api_format",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_base_path": {
+          "name": "provider_base_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "bindings_user_idx": {
+          "name": "bindings_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "bindings_connection_idx": {
+          "name": "bindings_connection_idx",
+          "columns": [
+            {
+              "expression": "connection_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "model_bindings_user_id_users_id_fk": {
+          "name": "model_bindings_user_id_users_id_fk",
+          "tableFrom": "model_bindings",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "model_bindings_preset_id_model_presets_id_fk": {
+          "name": "model_bindings_preset_id_model_presets_id_fk",
+          "tableFrom": "model_bindings",
+          "tableTo": "model_presets",
+          "columnsFrom": [
+            "preset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "model_bindings_connection_id_provider_connections_id_fk": {
+          "name": "model_bindings_connection_id_provider_connections_id_fk",
+          "tableFrom": "model_bindings",
+          "tableTo": "provider_connections",
+          "columnsFrom": [
+            "connection_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "bindings_connection_preset_format_unique": {
+          "name": "bindings_connection_preset_format_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "connection_id",
+            "preset_id",
+            "api_format"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.model_presets": {
       "name": "model_presets",
       "schema": "",
@@ -390,9 +686,9 @@
           "primaryKey": false,
           "notNull": true
         },
-        "gateway_model_id": {
-          "name": "gateway_model_id",
-          "type": "text",
+        "upstream_model_id": {
+          "name": "upstream_model_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
@@ -442,7 +738,7 @@
               "nulls": "last"
             },
             {
-              "expression": "gateway_model_id",
+              "expression": "upstream_model_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -467,6 +763,19 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "model_usage_daily_upstream_model_id_upstream_models_id_fk": {
+          "name": "model_usage_daily_upstream_model_id_upstream_models_id_fk",
+          "tableFrom": "model_usage_daily",
+          "tableTo": "upstream_models",
+          "columnsFrom": [
+            "upstream_model_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -476,7 +785,7 @@
           "nullsNotDistinct": false,
           "columns": [
             "user_id",
-            "gateway_model_id",
+            "upstream_model_id",
             "usage_date"
           ]
         }
@@ -513,31 +822,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "encrypted_api_key": {
-          "name": "encrypted_api_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "encryption_iv": {
-          "name": "encryption_iv",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "encryption_auth_tag": {
-          "name": "encryption_auth_tag",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "encryption_key_version": {
-          "name": "encryption_key_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
         },
         "enabled": {
           "name": "enabled",
@@ -628,9 +912,15 @@
           "primaryKey": false,
           "notNull": true
         },
-        "resolved_gateway_model": {
-          "name": "resolved_gateway_model",
+        "resolved_upstream_model": {
+          "name": "resolved_upstream_model",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolved_upstream_model_id": {
+          "name": "resolved_upstream_model_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
@@ -982,12 +1272,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "gateway_model_id": {
-          "name": "gateway_model_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "upstream_model_id": {
           "name": "upstream_model_id",
           "type": "text",
@@ -999,6 +1283,18 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
+        },
+        "binding_id": {
+          "name": "binding_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "token_id": {
+          "name": "token_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         },
         "api_format": {
           "name": "api_format",
@@ -1131,6 +1427,56 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "models_connection_upstream_token_unique": {
+          "name": "models_connection_upstream_token_unique",
+          "columns": [
+            {
+              "expression": "provider_connection_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "upstream_model_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "token_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"upstream_models\".\"token_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "models_connection_upstream_no_token_unique": {
+          "name": "models_connection_upstream_no_token_unique",
+          "columns": [
+            {
+              "expression": "provider_connection_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "upstream_model_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"upstream_models\".\"token_id\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -1159,34 +1505,36 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "upstream_models_binding_id_model_bindings_id_fk": {
+          "name": "upstream_models_binding_id_model_bindings_id_fk",
+          "tableFrom": "upstream_models",
+          "tableTo": "model_bindings",
+          "columnsFrom": [
+            "binding_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "upstream_models_token_id_connection_tokens_id_fk": {
+          "name": "upstream_models_token_id_connection_tokens_id_fk",
+          "tableFrom": "upstream_models",
+          "tableTo": "connection_tokens",
+          "columnsFrom": [
+            "token_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "upstream_models_gateway_model_id_unique": {
-          "name": "upstream_models_gateway_model_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "gateway_model_id"
-          ]
-        },
-        "models_user_gateway_unique": {
-          "name": "models_user_gateway_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "user_id",
-            "gateway_model_id"
-          ]
-        },
-        "models_connection_upstream_unique": {
-          "name": "models_connection_upstream_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "provider_connection_id",
-            "upstream_model_id"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1271,8 +1619,10 @@
   "policies": {},
   "views": {},
   "_meta": {
-    "columns": {},
     "schemas": {},
-    "tables": {}
-  }
+    "tables": {},
+    "columns": {}
+  },
+  "id": "24a08e0c-6ea2-4527-ae32-de0ecabaeeaa",
+  "prevId": "d3d6f208-83ae-490b-97ee-0940668064ae"
 }

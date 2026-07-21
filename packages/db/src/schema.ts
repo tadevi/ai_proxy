@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
@@ -10,6 +11,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -176,7 +178,16 @@ export const upstreamModels = pgTable(
   },
   (t) => [
     index('models_user_idx').on(t.userId),
-    unique('models_connection_upstream_unique').on(t.providerConnectionId, t.upstreamModelId),
+    // A connection can hold the same upstream model once per token (each token is
+    // an independent credential/route), but manually created models with no token
+    // (token_id null, legacy/backward-compat path) must stay unique per connection —
+    // NULLs are distinct under a plain unique constraint, so that case needs its own index.
+    uniqueIndex('models_connection_upstream_token_unique')
+      .on(t.providerConnectionId, t.upstreamModelId, t.tokenId)
+      .where(sql`${t.tokenId} is not null`),
+    uniqueIndex('models_connection_upstream_no_token_unique')
+      .on(t.providerConnectionId, t.upstreamModelId)
+      .where(sql`${t.tokenId} is null`),
   ],
 );
 

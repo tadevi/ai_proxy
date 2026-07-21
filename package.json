@@ -15,6 +15,8 @@
     "db:generate": "drizzle-kit generate --config packages/db/drizzle.config.ts",
     "db:migrate": "tsx packages/db/src/migrate.ts",
     "db:seed-presets": "tsx packages/db/src/seed-presets.ts",
+    "db:merge-connections": "tsx packages/db/src/merge-connections.ts",
+    "db:backfill-usage-daily": "tsx packages/db/src/backfill-usage-daily.ts",
     "secrets": "node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\""
   },
   "devDependencies": {

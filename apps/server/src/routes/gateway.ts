@@ -32,7 +32,13 @@ import { decryptCredential, validateUpstreamUrl } from '../security.js';
 type Model = typeof upstreamModels.$inferSelect;
 type ProviderConnection = typeof providerConnections.$inferSelect;
 type ConnectionToken = typeof connectionTokens.$inferSelect;
-type ResolvedModel = { model: Model; connection: ProviderConnection; token: ConnectionToken | null };
+type ResolvedModel = {
+  model: Model;
+  connection: ProviderConnection;
+  token: ConnectionToken | null;
+  rules: Rule[];
+};
+type ResolvedModelBase = Omit<ResolvedModel, 'rules'>;
 type Attempt = { resolved: ResolvedModel; routeIndex: number };
 type ProviderErrorDetails = {
   upstreamStatus: number;
@@ -203,6 +209,12 @@ export async function gatewayRoutes(app: FastifyInstance) {
         .limit(1);
       token = t ?? null;
     }
+    const ruleRows = await app.db
+      .select()
+      .from(transformationRules)
+      .where(eq(transformationRules.upstreamModelId, row.model.id))
+      .orderBy(asc(transformationRules.position));
+    const rules = ruleRows.map(toRule);
     const test: AnthropicRequest = {
       model: row.model.upstreamModelId,
       max_tokens: 8,
@@ -212,7 +224,7 @@ export async function gatewayRoutes(app: FastifyInstance) {
     try {
       const result = await callModel(
         app,
-        { ...row, token },
+        { ...row, token, rules },
         test,
         row.model.upstreamModelId,
         requestSignal(req.raw),
@@ -250,6 +262,56 @@ export async function gatewayRoutes(app: FastifyInstance) {
   });
 }
 
+async function attachTokens(
+  app: FastifyInstance,
+  rows: Array<{ model: Model; connection: ProviderConnection }>,
+): Promise<ResolvedModelBase[]> {
+  const tokenIds = [...new Set(rows.map((r) => r.model.tokenId).filter((id): id is string => id != null))];
+  const tokens = tokenIds.length
+    ? await app.db.select().from(connectionTokens).where(inArray(connectionTokens.id, tokenIds))
+    : [];
+  const tokenMap = new Map(tokens.map((t) => [t.id, t]));
+  return rows.map((row) => ({
+    ...row,
+    token: row.model.tokenId ? (tokenMap.get(row.model.tokenId) ?? null) : null,
+  }));
+}
+
+function toRule(row: typeof transformationRules.$inferSelect): Rule {
+  return {
+    type: row.type,
+    enabled: row.enabled,
+    position: row.position,
+    config: row.configJson as Record<string, unknown>,
+  };
+}
+
+// Batches the transformation-rules lookup across every fallback candidate up front,
+// instead of each attempt querying it individually right before its upstream call.
+async function attachRules<T extends { resolved: ResolvedModelBase }>(
+  app: FastifyInstance,
+  entries: T[],
+): Promise<Array<Omit<T, 'resolved'> & { resolved: ResolvedModel }>> {
+  const modelIds = [...new Set(entries.map((e) => e.resolved.model.id))];
+  const ruleRows = modelIds.length
+    ? await app.db
+        .select()
+        .from(transformationRules)
+        .where(inArray(transformationRules.upstreamModelId, modelIds))
+        .orderBy(asc(transformationRules.position))
+    : [];
+  const rulesByModel = new Map<string, Rule[]>();
+  for (const row of ruleRows) {
+    const list = rulesByModel.get(row.upstreamModelId) ?? [];
+    list.push(toRule(row));
+    rulesByModel.set(row.upstreamModelId, list);
+  }
+  return entries.map((e) => ({
+    ...e,
+    resolved: { ...e.resolved, rules: rulesByModel.get(e.resolved.model.id) ?? [] },
+  }));
+}
+
 async function resolve(
   app: FastifyInstance,
   userId: string,
@@ -262,7 +324,7 @@ async function resolve(
     .from(mappings)
     .where(and(eq(mappings.userId, userId), eq(mappings.alias, incoming)))
     .limit(1);
-  let models: Array<{ resolved: ResolvedModel; position: number }>;
+  let models: Array<{ resolved: ResolvedModelBase; position: number }>;
   if (mapping) {
     const rows = await app.db
       .select({
@@ -286,19 +348,13 @@ async function resolve(
         ),
       )
       .orderBy(asc(mappingRoutes.position));
-    const tokenIds = [...new Set(rows.map((r) => r.model.tokenId).filter((id): id is string => id != null))];
-    const tokens = tokenIds.length
-      ? await app.db
-          .select()
-          .from(connectionTokens)
-          .where(inArray(connectionTokens.id, tokenIds))
-      : [];
-    const tokenMap = new Map(tokens.map((t) => [t.id, t]));
-    models = rows.map(({ model, connection, position }) => ({
-      resolved: { model, connection, token: model.tokenId ? (tokenMap.get(model.tokenId) ?? null) : null },
-      position,
-    }));
+    const resolved = await attachTokens(app, rows);
+    models = resolved.map((r, i) => ({ resolved: r, position: rows[i]!.position }));
   } else {
+    // No explicit mapping: multiple upstream_models can share this public model id
+    // (different connections, or different tokens on the same connection). Fetch every
+    // candidate instead of an arbitrary one so a failed attempt can fall back to the
+    // next, ordered by known health first and then by configuration order.
     const rows = await app.db
       .select({ model: upstreamModels, connection: providerConnections })
       .from(upstreamModels)
@@ -315,23 +371,21 @@ async function resolve(
           or(isNull(upstreamModels.cooldownUntil), lte(upstreamModels.cooldownUntil, new Date())),
         ),
       )
-      .limit(1);
-    const tokenIds = [...new Set(rows.map((r) => r.model.tokenId).filter((id): id is string => id != null))];
-    const tokens = tokenIds.length
-      ? await app.db
-          .select()
-          .from(connectionTokens)
-          .where(inArray(connectionTokens.id, tokenIds))
-      : [];
-    const tokenMap = new Map(tokens.map((t) => [t.id, t]));
-    models = rows.map((resolved) => ({
-      resolved: { ...resolved, token: resolved.model.tokenId ? (tokenMap.get(resolved.model.tokenId) ?? null) : null },
-      position: 0,
-    }));
+      .orderBy(
+        sql`case ${upstreamModels.latestTestStatus} when 'healthy' then 0 when 'failed' then 2 else 1 end`,
+        asc(upstreamModels.createdAt),
+        // Tiebreaker so the pick is fully deterministic even if createdAt ever collides —
+        // stability here matters so repeat requests keep hitting the same upstream API key
+        // and can benefit from that provider's prompt/KV caching, not just for its own sake.
+        asc(upstreamModels.id),
+      );
+    const resolved = await attachTokens(app, rows);
+    models = resolved.map((r, position) => ({ resolved: r, position }));
   }
+  const withRules = await attachRules(app, models);
   const skipped: object[] = [];
   const attempts: Attempt[] = [];
-  for (const row of models) {
+  for (const row of withRules) {
     const reason =
       hasImages && row.resolved.model.supportsImages !== 'yes'
         ? row.resolved.model.supportsImages === 'no'
@@ -593,7 +647,7 @@ async function callModel(
   stream?: AsyncIterable<string | Uint8Array>;
   usage?: StreamUsage;
 }> {
-  const { model, connection, token } = resolved;
+  const { model, connection, token, rules } = resolved;
   const endpoint = requestEndpoint(model, connection);
   await validateUpstreamUrl(
     endpoint,
@@ -624,17 +678,6 @@ async function callModel(
     let body: Record<string, unknown>;
     let headers: Record<string, string>;
     if (model.apiFormat === 'openai_compatible') {
-      const ruleRows = await app.db
-        .select()
-        .from(transformationRules)
-        .where(eq(transformationRules.upstreamModelId, model.id))
-        .orderBy(asc(transformationRules.position));
-      const rules = ruleRows.map((r) => ({
-        type: r.type,
-        enabled: r.enabled,
-        position: r.position,
-        config: r.configJson as Record<string, unknown>,
-      })) satisfies Rule[];
       body = anthropicToOpenAI(requestForModel, model.upstreamModelId);
       body = applyRules(body, rules, normalizeThinking(requestForModel.thinking));
       if (requestForModel.stream) body.stream_options = { include_usage: true };
