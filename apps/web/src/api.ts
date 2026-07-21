@@ -34,6 +34,9 @@ export type Model = {
   supportsImages: string;
   supportsReasoning: string;
   latestTestStatus?: string;
+  cooldownUntil?: string | null;
+  latestError?: Record<string, unknown> | null;
+  latestErrorAt?: string | null;
 };
 export type ProviderConnection = {
   id: string;

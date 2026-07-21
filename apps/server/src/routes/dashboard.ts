@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import bcrypt from 'bcryptjs';
-import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from 'drizzle-orm';
 import {
   gatewayKeys,
   mappingRoutes,
@@ -53,6 +53,9 @@ const safeModel = {
   enabled: upstreamModels.enabled,
   latestTestStatus: upstreamModels.latestTestStatus,
   latestTestAt: upstreamModels.latestTestAt,
+  cooldownUntil: upstreamModels.cooldownUntil,
+  latestError: upstreamModels.latestError,
+  latestErrorAt: upstreamModels.latestErrorAt,
   createdAt: upstreamModels.createdAt,
   updatedAt: upstreamModels.updatedAt,
 };
@@ -264,6 +267,23 @@ export async function dashboardRoutes(app: FastifyInstance) {
   });
 
   app.get('/api/models', async (req) => listModels(app, req.dashboardUser!.id));
+  app.get('/api/models/usage', async (req) =>
+    app.db
+      .select({
+        gatewayModelId: requestLogs.resolvedGatewayModel,
+        requestCount: sql<number>`count(*)::int`,
+        inputTokens: sql<string>`coalesce(sum(${requestLogs.inputTokens}), 0)::text`,
+        outputTokens: sql<string>`coalesce(sum(${requestLogs.outputTokens}), 0)::text`,
+      })
+      .from(requestLogs)
+      .where(
+        and(
+          eq(requestLogs.userId, req.dashboardUser!.id),
+          isNotNull(requestLogs.resolvedGatewayModel),
+        ),
+      )
+      .groupBy(requestLogs.resolvedGatewayModel),
+  );
   app.post('/api/models', async (req, reply) => {
     const input = modelInputSchema.parse(req.body);
     if (!(await ownsConnection(app, req.dashboardUser!.id, input.providerConnectionId))) {

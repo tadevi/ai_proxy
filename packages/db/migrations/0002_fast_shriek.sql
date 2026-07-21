@@ -1,0 +1,1 @@
+ALTER TABLE "upstream_models" ADD COLUMN "cooldown_until" timestamp with time zone;

@@ -26,6 +26,56 @@ const defaults: Form = {
   supportsImages: 'no',
   supportsReasoning: 'yes',
 };
+
+function latestErrorMessage(error?: Record<string, unknown> | null) {
+  if (!error) return undefined;
+  const response = error.response;
+  if (response && typeof response === 'object' && !Array.isArray(response)) {
+    const message = (response as Record<string, unknown>).message;
+    if (typeof message === 'string') return message;
+    const nested = (response as Record<string, unknown>).error;
+    if (
+      nested &&
+      typeof nested === 'object' &&
+      typeof (nested as Record<string, unknown>).message === 'string'
+    )
+      return (nested as Record<string, unknown>).message as string;
+  }
+  if (typeof error.responseText === 'string') {
+    const match = error.responseText.match(/data:(.+)/);
+    if (match?.[1]) {
+      try {
+        const message = (JSON.parse(match[1]) as { message?: unknown }).message;
+        if (typeof message === 'string') return message;
+      } catch {
+        // Use the raw text below when an SSE error cannot be parsed.
+      }
+    }
+    return error.responseText;
+  }
+  return typeof error.message === 'string' ? error.message : 'An upstream error was recorded.';
+}
+
+type ModelUsage = {
+  gatewayModelId: string;
+  requestCount: number;
+  inputTokens: string;
+  outputTokens: string;
+};
+
+function formatTokens(value: string | number) {
+  const tokens = Number(value);
+  if (!Number.isFinite(tokens)) return '—';
+  const [suffix, divisor]: [string, number] =
+    tokens >= 1_000_000_000
+      ? ['B', 1_000_000_000]
+      : tokens >= 1_000_000
+        ? ['M', 1_000_000]
+        : ['K', 1_000];
+  const scaled = tokens / divisor;
+  return `${Number(scaled.toFixed(scaled >= 10 ? 1 : 2))}${suffix}`;
+}
+
 export function Models() {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Model | null>(null);
@@ -39,6 +89,12 @@ export function Models() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
   const models = useQuery({ queryKey: ['models'], queryFn: () => api<Model[]>('/api/models') });
+  const usage = useQuery({
+    queryKey: ['models', 'usage'],
+    queryFn: () => api<ModelUsage[]>('/api/models/usage'),
+    refetchInterval: 10_000,
+  });
+  const usageByModel = new Map(usage.data?.map((item) => [item.gatewayModelId, item]));
   const save = useMutation({
     mutationFn: (v: Form) =>
       api(`/api/models${editing ? `/${editing.id}` : ''}`, {
@@ -58,6 +114,14 @@ export function Models() {
   const del = useMutation({
     mutationFn: (id: string) => api(`/api/models/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['models'] }),
+  });
+  const toggleEnabled = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      api(`/api/models/${id}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['models'] });
+      qc.invalidateQueries({ queryKey: ['mappings'] });
+    },
   });
   const test = useMutation({
     mutationFn: (id: string) =>
@@ -102,66 +166,106 @@ export function Models() {
       )}
       {rulesModel && <ThinkingRules model={rulesModel} onClose={() => setRulesModel(null)} />}
       <div className="grid gap-4">
-        {models.data?.map((m) => (
-          <div className="card flex flex-col gap-4 lg:flex-row lg:items-center" key={m.id}>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <h2 className="font-medium">{m.displayName}</h2>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-xs ${m.enabled ? 'bg-emerald-950 text-emerald-300' : 'bg-zinc-800 text-zinc-400'}`}
-                >
-                  {m.enabled ? 'Enabled' : 'Disabled'}
-                </span>
-                {m.latestTestStatus && (
-                  <span className="text-xs text-zinc-400">Health: {m.latestTestStatus}</span>
+        {models.data?.map((m) => {
+          const modelUsage = usageByModel.get(m.gatewayModelId);
+          return (
+            <div className="card flex flex-col gap-4 lg:flex-row lg:items-center" key={m.id}>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <h2 className="font-medium">{m.displayName}</h2>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs ${m.enabled ? 'bg-emerald-950 text-emerald-300' : 'bg-zinc-800 text-zinc-400'}`}
+                  >
+                    {m.enabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                  {m.latestTestStatus && (
+                    <span className="text-xs text-zinc-400">Health: {m.latestTestStatus}</span>
+                  )}
+                  {m.cooldownUntil && new Date(m.cooldownUntil) > new Date() && (
+                    <span className="text-xs text-amber-300">
+                      Cooling down until {new Date(m.cooldownUntil).toLocaleTimeString()}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 truncate font-mono text-sm text-indigo-300">
+                  {m.gatewayModelId}
+                </p>
+                <p className="muted truncate">
+                  {m.providerConnectionName} · {m.apiFormat.replace('_', ' ')} · {m.upstreamModelId}
+                </p>
+                <p className="mt-2 text-sm text-zinc-300">
+                  {modelUsage
+                    ? `Usage: ${formatTokens(modelUsage.inputTokens)} in · ${formatTokens(modelUsage.outputTokens)} out · ${modelUsage.requestCount} requests`
+                    : 'Usage: no requests yet'}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {['Images', 'Reasoning'].map((k) => (
+                    <span className="rounded bg-zinc-800 px-2 py-1 text-xs" key={k}>
+                      {k}: {m[`supports${k}` as keyof Model] as string}
+                    </span>
+                  ))}
+                </div>
+                {m.latestError && (
+                  <p
+                    className="mt-3 line-clamp-2 text-sm text-red-300"
+                    title={latestErrorMessage(m.latestError)}
+                  >
+                    Last error
+                    {m.latestErrorAt
+                      ? ` · ${new Date(m.latestErrorAt).toLocaleString()}`
+                      : ''}: {latestErrorMessage(m.latestError)}
+                  </p>
                 )}
               </div>
-              <p className="mt-1 truncate font-mono text-sm text-indigo-300">{m.gatewayModelId}</p>
-              <p className="muted truncate">
-                {m.providerConnectionName} · {m.apiFormat.replace('_', ' ')} · {m.upstreamModelId}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-1">
-                {['Images', 'Reasoning'].map((k) => (
-                  <span className="rounded bg-zinc-800 px-2 py-1 text-xs" key={k}>
-                    {k}: {m[`supports${k}` as keyof Model] as string}
-                  </span>
-                ))}
+              <div className="flex gap-2">
+                <button
+                  aria-checked={m.enabled}
+                  aria-label={`${m.enabled ? 'Disable' : 'Enable'} ${m.displayName}`}
+                  className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 ${m.enabled ? 'bg-emerald-500/80' : 'bg-zinc-700'}`}
+                  disabled={toggleEnabled.isPending}
+                  onClick={() => toggleEnabled.mutate({ id: m.id, enabled: !m.enabled })}
+                  role="switch"
+                  title={m.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}
+                  type="button"
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-zinc-100 shadow-sm transition-transform ${m.enabled ? 'translate-x-4' : 'translate-x-0'}`}
+                  />
+                </button>
+                <button
+                  className="btn"
+                  disabled={testingId === m.id}
+                  onClick={() => test.mutate(m.id)}
+                >
+                  {testingId === m.id ? 'Testing…' : 'Test'}
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    setEditing(m);
+                    setShow(true);
+                  }}
+                >
+                  Edit
+                </button>
+                {m.apiFormat === 'openai_compatible' && (
+                  <button className="btn" onClick={() => setRulesModel(m)}>
+                    Rules
+                  </button>
+                )}
+                <button
+                  className="btn btn-danger"
+                  onClick={() =>
+                    confirm('Delete this model? It will also be removed from mappings.') &&
+                    del.mutate(m.id)
+                  }
+                >
+                  Delete
+                </button>
               </div>
             </div>
-            <div className="flex gap-2">
-              <button
-                className="btn"
-                disabled={testingId === m.id}
-                onClick={() => test.mutate(m.id)}
-              >
-                {testingId === m.id ? 'Testing…' : 'Test'}
-              </button>
-              <button
-                className="btn"
-                onClick={() => {
-                  setEditing(m);
-                  setShow(true);
-                }}
-              >
-                Edit
-              </button>
-              {m.apiFormat === 'openai_compatible' && (
-                <button className="btn" onClick={() => setRulesModel(m)}>
-                  Rules
-                </button>
-              )}
-              <button
-                className="btn btn-danger"
-                onClick={() =>
-                  confirm('Delete this model? It will also be removed from mappings.') &&
-                  del.mutate(m.id)
-                }
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
         {models.data?.length === 0 && (
           <div className="card text-center text-zinc-400">
             Add your first upstream model to get started.

@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { IncomingMessage } from 'node:http';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull, lte, or } from 'drizzle-orm';
 import {
   mappingRoutes,
   mappings,
@@ -48,6 +48,8 @@ class UpstreamFailure extends Error {
   }
 }
 const fallbackStatuses = new Set([429, 500, 502, 503, 504]);
+const cooldownStatuses = new Set([403]);
+const cooldownDurationMs = 60 * 60 * 1_000;
 const safeProviderMessage = (status: number) =>
   status === 401 || status === 403
     ? 'The provider rejected the configured API key.'
@@ -164,7 +166,13 @@ export async function gatewayRoutes(app: FastifyInstance) {
       );
       await app.db
         .update(upstreamModels)
-        .set({ latestTestStatus: 'healthy', latestTestAt: new Date() })
+        .set({
+          latestTestStatus: 'healthy',
+          latestTestAt: new Date(),
+          cooldownUntil: null,
+          latestError: null,
+          latestErrorAt: null,
+        })
         .where(eq(upstreamModels.id, id));
       return {
         ok: true,
@@ -173,9 +181,16 @@ export async function gatewayRoutes(app: FastifyInstance) {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Model test failed';
+      const latestError =
+        error instanceof UpstreamFailure ? (error.providerError ?? { message }) : { message };
       await app.db
         .update(upstreamModels)
-        .set({ latestTestStatus: 'failed', latestTestAt: new Date() })
+        .set({
+          latestTestStatus: 'failed',
+          latestTestAt: new Date(),
+          latestError,
+          latestErrorAt: new Date(),
+        })
         .where(eq(upstreamModels.id, id));
       return reply.code(502).send({ ok: false, message });
     }
@@ -216,6 +231,7 @@ async function resolve(
           eq(mappingRoutes.enabled, true),
           eq(upstreamModels.enabled, true),
           eq(providerConnections.enabled, true),
+          or(isNull(upstreamModels.cooldownUntil), lte(upstreamModels.cooldownUntil, new Date())),
         ),
       )
       .orderBy(asc(mappingRoutes.position));
@@ -237,6 +253,7 @@ async function resolve(
           eq(upstreamModels.gatewayModelId, incoming),
           eq(upstreamModels.enabled, true),
           eq(providerConnections.enabled, true),
+          or(isNull(upstreamModels.cooldownUntil), lte(upstreamModels.cooldownUntil, new Date())),
         ),
       )
       .limit(1);
@@ -346,6 +363,7 @@ async function handleMessage(
               await new Promise<void>((resolve) => reply.raw.once('drain', resolve));
           }
           reply.raw.end();
+          await clearModelError(app, attempt.resolved.model.id);
           await writeLog(app, {
             userId,
             requestId,
@@ -379,6 +397,7 @@ async function handleMessage(
       }
       const body = result.body as Record<string, unknown>;
       const usage = body.usage as Record<string, number> | undefined;
+      await clearModelError(app, attempt.resolved.model.id);
       await writeLog(app, {
         userId,
         requestId,
@@ -414,7 +433,27 @@ async function handleMessage(
         },
         'upstream request failed',
       );
-      if (!failure.fallbackable || index === attempts.length - 1) break;
+      await setModelError(app, attempt.resolved.model.id, failure);
+      if (cooldownStatuses.has(failure.status)) {
+        const cooldownUntil = new Date(Date.now() + cooldownDurationMs);
+        await app.db
+          .update(upstreamModels)
+          .set({ cooldownUntil, updatedAt: new Date() })
+          .where(eq(upstreamModels.id, attempt.resolved.model.id));
+        app.log.warn(
+          {
+            requestId,
+            resolvedGatewayModel: attempt.resolved.model.gatewayModelId,
+            cooldownUntil,
+          },
+          'model placed in cooldown after upstream quota or access failure',
+        );
+      }
+      if (
+        (!failure.fallbackable && !cooldownStatuses.has(failure.status)) ||
+        index === attempts.length - 1
+      )
+        break;
     }
   }
   const final =
@@ -523,7 +562,7 @@ async function callModel(
       throw new UpstreamFailure(
         safeProviderMessage(response.status),
         response.status,
-        fallbackStatuses.has(response.status),
+        fallbackStatuses.has(response.status) || cooldownStatuses.has(response.status),
         response.status === 401 || response.status === 403
           ? 'authentication_error'
           : `upstream_${response.status}`,
@@ -627,6 +666,28 @@ function requestEndpoint(model: Model, connection: ProviderConnection) {
   const defaultPath =
     model.apiFormat === 'openai_compatible' ? '/chat/completions' : '/v1/messages';
   return `${connection.baseUrl.replace(/\/+$/, '')}${model.requestPathOverride ?? `${model.providerBasePath}${defaultPath}`}`;
+}
+
+async function clearModelError(app: FastifyInstance, modelId: string) {
+  await app.db
+    .update(upstreamModels)
+    .set({ latestError: null, latestErrorAt: null, updatedAt: new Date() })
+    .where(eq(upstreamModels.id, modelId));
+}
+
+async function setModelError(app: FastifyInstance, modelId: string, failure: UpstreamFailure) {
+  await app.db
+    .update(upstreamModels)
+    .set({
+      latestError: failure.providerError ?? {
+        upstreamStatus: failure.status,
+        errorCategory: failure.category,
+        message: failure.message,
+      },
+      latestErrorAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(upstreamModels.id, modelId));
 }
 
 async function writeLog(app: FastifyInstance, values: typeof requestLogs.$inferInsert) {
