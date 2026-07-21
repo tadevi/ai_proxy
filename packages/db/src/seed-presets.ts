@@ -28,7 +28,7 @@ const { db, pool } = createDb(url, ssl);
 
 const systemPresets = [
   { displayName: 'DeepSeek V4 Pro', upstreamModelId: 'deepseek-v4-pro', apiFormat: 'anthropic_compatible', supportsImages: 'no', supportsReasoning: 'yes', maxOutputTokens: 65536 },
-  { displayName: 'Mimo 2.5', upstreamModelId: 'mimo-v2.5', apiFormat: 'anthropic_compatible', supportsImages: 'yes', supportsReasoning: 'no', maxOutputTokens: 128000 },
+  { displayName: 'Mimo 2.5', upstreamModelId: 'mimo-v2.5', apiFormat: 'anthropic_compatible', supportsImages: 'yes', supportsReasoning: 'yes', maxOutputTokens: 128000 },
   { displayName: 'Mimo 2.5 Pro', upstreamModelId: 'mimo-v2.5-pro', apiFormat: 'anthropic_compatible', supportsImages: 'no', supportsReasoning: 'yes', maxOutputTokens: 128000 },
 ];
 
