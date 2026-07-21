@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { IncomingMessage } from 'node:http';
-import { and, asc, eq, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import {
+  connectionTokens,
   mappingRoutes,
   mappings,
   modelUsageDaily,
@@ -30,7 +31,8 @@ import { decryptCredential, validateUpstreamUrl } from '../security.js';
 
 type Model = typeof upstreamModels.$inferSelect;
 type ProviderConnection = typeof providerConnections.$inferSelect;
-type ResolvedModel = { model: Model; connection: ProviderConnection };
+type ConnectionToken = typeof connectionTokens.$inferSelect;
+type ResolvedModel = { model: Model; connection: ProviderConnection; token: ConnectionToken | null };
 type Attempt = { resolved: ResolvedModel; routeIndex: number };
 type ProviderErrorDetails = {
   upstreamStatus: number;
@@ -192,6 +194,15 @@ export async function gatewayRoutes(app: FastifyInstance) {
       .where(and(eq(upstreamModels.id, id), eq(upstreamModels.userId, userId)))
       .limit(1);
     if (!row) return reply.code(404).send({ error: 'Model not found' });
+    let token: ConnectionToken | null = null;
+    if (row.model.tokenId) {
+      const [t] = await app.db
+        .select()
+        .from(connectionTokens)
+        .where(eq(connectionTokens.id, row.model.tokenId))
+        .limit(1);
+      token = t ?? null;
+    }
     const test: AnthropicRequest = {
       model: row.model.upstreamModelId,
       max_tokens: 8,
@@ -201,7 +212,7 @@ export async function gatewayRoutes(app: FastifyInstance) {
     try {
       const result = await callModel(
         app,
-        row,
+        { ...row, token },
         test,
         row.model.upstreamModelId,
         requestSignal(req.raw),
@@ -275,8 +286,16 @@ async function resolve(
         ),
       )
       .orderBy(asc(mappingRoutes.position));
+    const tokenIds = [...new Set(rows.map((r) => r.model.tokenId).filter((id): id is string => id != null))];
+    const tokens = tokenIds.length
+      ? await app.db
+          .select()
+          .from(connectionTokens)
+          .where(inArray(connectionTokens.id, tokenIds))
+      : [];
+    const tokenMap = new Map(tokens.map((t) => [t.id, t]));
     models = rows.map(({ model, connection, position }) => ({
-      resolved: { model, connection },
+      resolved: { model, connection, token: model.tokenId ? (tokenMap.get(model.tokenId) ?? null) : null },
       position,
     }));
   } else {
@@ -297,7 +316,18 @@ async function resolve(
         ),
       )
       .limit(1);
-    models = rows.map((resolved) => ({ resolved, position: 0 }));
+    const tokenIds = [...new Set(rows.map((r) => r.model.tokenId).filter((id): id is string => id != null))];
+    const tokens = tokenIds.length
+      ? await app.db
+          .select()
+          .from(connectionTokens)
+          .where(inArray(connectionTokens.id, tokenIds))
+      : [];
+    const tokenMap = new Map(tokens.map((t) => [t.id, t]));
+    models = rows.map((resolved) => ({
+      resolved: { ...resolved, token: resolved.model.tokenId ? (tokenMap.get(resolved.model.tokenId) ?? null) : null },
+      position: 0,
+    }));
   }
   const skipped: object[] = [];
   const attempts: Attempt[] = [];
@@ -563,7 +593,7 @@ async function callModel(
   stream?: AsyncIterable<string | Uint8Array>;
   usage?: StreamUsage;
 }> {
-  const { model, connection } = resolved;
+  const { model, connection, token } = resolved;
   const endpoint = requestEndpoint(model, connection);
   await validateUpstreamUrl(
     endpoint,
@@ -585,7 +615,9 @@ async function callModel(
   resetTimeout();
   clientSignal.addEventListener('abort', abort, { once: true });
   try {
-    const key = decryptCredential(connection, app.config.CREDENTIAL_ENCRYPTION_KEY);
+    if (!token)
+      throw new UpstreamFailure('No API token configured for this model.', 500, false, 'configuration_error');
+    const key = decryptCredential(token, app.config.CREDENTIAL_ENCRYPTION_KEY);
     const requestForModel = model.maxOutputTokens
       ? { ...request, max_tokens: Math.min(request.max_tokens, model.maxOutputTokens) }
       : request;

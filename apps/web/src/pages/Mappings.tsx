@@ -8,8 +8,22 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type Model, type Route } from '../api';
+import { api, type Model } from '../api';
+
+type Route = {
+  routeId: string;
+  modelId: string;
+  enabled: boolean;
+  position: number;
+  displayName: string;
+  providerConnectionName: string;
+  tokenName: string | null;
+  upstreamModelId: string;
+  latestTestStatus?: string;
+};
+
 type Mapping = { alias: string; routes: Route[] };
+
 export function Mappings() {
   const qc = useQueryClient();
   const mappings = useQuery({
@@ -55,6 +69,7 @@ export function Mappings() {
     </>
   );
 }
+
 function MappingCard({
   mapping,
   models,
@@ -83,6 +98,7 @@ function MappingCard({
         position: mapping.routes.length,
         displayName: m.displayName,
         providerConnectionName: m.providerConnectionName,
+        tokenName: m.tokenName,
         upstreamModelId: m.upstreamModelId,
         latestTestStatus: m.latestTestStatus,
       },
@@ -129,7 +145,7 @@ function MappingCard({
             .filter((m) => !mapping.routes.some((r) => r.modelId === m.id))
             .map((m) => (
               <option value={m.id} key={m.id}>
-                {m.displayName} — {m.providerConnectionName}
+                {m.displayName}
               </option>
             ))}
         </select>
@@ -140,6 +156,7 @@ function MappingCard({
     </section>
   );
 }
+
 function SortableRoute({
   route,
   index,
@@ -202,7 +219,10 @@ function SortableRoute({
           </svg>
         </button>
       </div>
-      <p className="mt-1 truncate pl-10 text-xs text-zinc-500">{route.providerConnectionName}</p>
+      <p className="mt-1 truncate pl-10 text-xs text-zinc-500">
+        {route.providerConnectionName}
+        {route.tokenName && <> · {route.tokenName}</>}
+      </p>
     </div>
   );
 }

@@ -16,12 +16,38 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     );
   return body as T;
 }
+export type ProviderConnection = {
+  id: string;
+  displayName: string;
+  baseUrl: string;
+  enabled: boolean;
+};
+export type ConnectionToken = {
+  id: string;
+  connectionId: string;
+  name: string;
+  enabled: boolean;
+  createdAt: string;
+};
+export type ModelBinding = {
+  id: string;
+  connectionId: string;
+  presetId: string;
+  presetName: string;
+  presetUpstreamModelId: string;
+  apiFormat: string;
+  providerBasePath: string;
+  createdAt: string;
+};
 export type Model = {
   id: string;
   displayName: string;
   upstreamModelId: string;
   providerConnectionId: string;
   providerConnectionName: string;
+  bindingId: string | null;
+  tokenId: string | null;
+  tokenName: string | null;
   apiFormat: 'openai_compatible' | 'anthropic_compatible';
   providerBasePath: string;
   requestPathOverride?: string | null;
@@ -37,12 +63,6 @@ export type Model = {
   latestError?: Record<string, unknown> | null;
   latestErrorAt?: string | null;
 };
-export type ProviderConnection = {
-  id: string;
-  displayName: string;
-  baseUrl: string;
-  enabled: boolean;
-};
 export type Preset = {
   id: string;
   userId: string | null;
@@ -54,14 +74,4 @@ export type Preset = {
   maxOutputTokens?: number | null;
   createdAt: string;
   updatedAt: string;
-};
-export type Route = {
-  routeId: string;
-  modelId: string;
-  enabled: boolean;
-  position: number;
-  displayName: string;
-  providerConnectionName: string;
-  upstreamModelId: string;
-  latestTestStatus?: string;
 };

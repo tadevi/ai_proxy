@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type Preset, type ProviderConnection } from '../api';
+import { api, type Preset } from '../api';
 
 type Form = {
   displayName: string;
@@ -24,18 +24,7 @@ const defaults: Form = {
 export function Presets() {
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
-  const [linkPreset, setLinkPreset] = useState<Preset | null>(null);
-  const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
-  useEffect(() => {
-    if (!notice) return;
-    const timeout = window.setTimeout(() => setNotice(null), 2_000);
-    return () => window.clearTimeout(timeout);
-  }, [notice]);
   const presets = useQuery({ queryKey: ['presets'], queryFn: () => api<Preset[]>('/api/presets') });
-  const connections = useQuery({
-    queryKey: ['connections'],
-    queryFn: () => api<ProviderConnection[]>('/api/connections'),
-  });
   const save = useMutation({
     mutationFn: (v: Form) =>
       api('/api/presets', {
@@ -54,38 +43,13 @@ export function Presets() {
     mutationFn: (id: string) => api(`/api/presets/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['presets'] }),
   });
-  const link = useMutation({
-    mutationFn: ({
-      presetId,
-      providerConnectionId,
-      displayName,
-      providerBasePath,
-    }: {
-      presetId: string;
-      providerConnectionId: string;
-      displayName?: string;
-      providerBasePath?: string;
-    }) =>
-      api(`/api/presets/${presetId}/link`, {
-        method: 'POST',
-        body: JSON.stringify({ providerConnectionId, displayName, providerBasePath }),
-      }),
-    onSuccess: () => {
-      setLinkPreset(null);
-      setNotice({ tone: 'success', message: 'Model created from preset.' });
-      qc.invalidateQueries({ queryKey: ['models'] });
-      qc.invalidateQueries({ queryKey: ['mappings'] });
-    },
-    onError: (error) => setNotice({ tone: 'error', message: error.message }),
-  });
-  const enabledConnections = connections.data?.filter((c) => c.enabled) ?? [];
   return (
     <>
       <div className="mb-6 flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Model presets</h1>
           <p className="muted mt-1">
-            Pre-configured model definitions. Select a preset and link it to a provider connection.
+            Pre-configured model definitions. Bind presets to connections from the Connections page.
           </p>
         </div>
         <button
@@ -103,31 +67,6 @@ export function Presets() {
           onCancel={() => setShowForm(false)}
           onSave={(v) => save.mutate(v)}
         />
-      )}
-      {linkPreset && (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setLinkPreset(null);
-          }}
-          role="presentation"
-        >
-          <section className="card w-full max-w-md" role="dialog" aria-modal="true">
-            <h2 className="text-lg font-medium">Link preset</h2>
-            <p className="muted mt-1">
-              Create a model from <span className="font-mono text-zinc-200">{linkPreset.displayName}</span>
-            </p>
-            <LinkForm
-              connections={enabledConnections}
-              preset={linkPreset}
-              error={link.error?.message}
-              onCancel={() => setLinkPreset(null)}
-              onLink={(connectionId, displayName, providerBasePath) =>
-                link.mutate({ presetId: linkPreset.id, providerConnectionId: connectionId, displayName, providerBasePath })
-              }
-            />
-          </section>
-        </div>
       )}
       <div className="grid gap-4">
         {presets.data?.map((preset) => {
@@ -168,9 +107,6 @@ export function Presets() {
                 </div>
               </div>
               <div className="flex gap-2">
-                <button className="btn btn-primary" onClick={() => setLinkPreset(preset)}>
-                  Use preset
-                </button>
                 {!isSystem && (
                   <button
                     className="btn btn-danger"
@@ -189,89 +125,7 @@ export function Presets() {
           <div className="card text-center text-zinc-400">No presets available.</div>
         )}
       </div>
-      {notice && (
-        <div
-          className={`fixed top-5 left-1/2 z-50 w-[min(30rem,calc(100%-2rem))] -translate-x-1/2 animate-[toast-drop_220ms_ease-out] rounded-xl border px-4 py-3 shadow-xl ${notice.tone === 'success' ? 'border-emerald-700 bg-emerald-950 text-emerald-100' : 'border-red-700 bg-red-950 text-red-100'}`}
-          role="status"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <span>{notice.message}</span>
-            <button
-              className="text-lg leading-none opacity-70 hover:opacity-100"
-              onClick={() => setNotice(null)}
-              aria-label="Dismiss notification"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-      )}
     </>
-  );
-}
-
-function LinkForm({
-  connections,
-  preset,
-  error,
-  onCancel,
-  onLink,
-}: {
-  connections: ProviderConnection[];
-  preset: Preset;
-  error?: string;
-  onCancel: () => void;
-  onLink: (connectionId: string, displayName?: string, providerBasePath?: string) => void;
-}) {
-  const { register, handleSubmit } = useForm<{
-    providerConnectionId: string;
-    displayName: string;
-    providerBasePath: string;
-  }>({
-    defaultValues: { providerConnectionId: '', displayName: preset.displayName, providerBasePath: '' },
-  });
-  return (
-    <form
-      className="mt-4 grid gap-4"
-      onSubmit={handleSubmit((v) =>
-        onLink(
-          v.providerConnectionId,
-          v.displayName !== preset.displayName ? v.displayName : undefined,
-          v.providerBasePath || undefined,
-        ),
-      )}
-    >
-      <label>
-        <span className="label">Display name</span>
-        <input className="input" {...register('displayName')} />
-      </label>
-      <label>
-        <span className="label">Provider connection</span>
-        <select className="input" {...register('providerConnectionId', { required: true })}>
-          <option value="">Select a connection…</option>
-          {connections.map((c) => (
-            <option value={c.id} key={c.id}>
-              {c.displayName}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span className="label">Provider base path</span>
-        <input
-          className="input"
-          placeholder="/apps/anthropic or /compatible-mode/v1"
-          {...register('providerBasePath')}
-        />
-      </label>
-      {error && <p className="text-red-400">{error}</p>}
-      <div className="flex gap-2">
-        <button className="btn btn-primary">Create model</button>
-        <button type="button" className="btn" onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
-    </form>
   );
 }
 

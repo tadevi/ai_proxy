@@ -2,9 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import {
+  connectionTokens,
   gatewayKeys,
   mappingRoutes,
   mappings,
+  modelBindings,
   modelPresets,
   modelUsageDaily,
   providerConnections,
@@ -17,12 +19,14 @@ import {
 import {
   aliases,
   changePasswordSchema,
+  connectionTokenInputSchema,
+  connectionTokenUpdateSchema,
   credentialsSchema,
   gatewayKeyInputSchema,
   mappingUpdateSchema,
+  modelBindingInputSchema,
   modelInputSchema,
   presetInputSchema,
-  presetLinkSchema,
   providerConnectionInputSchema,
   ruleInputSchema,
 } from '@gateway/shared';
@@ -43,6 +47,8 @@ const safeModel = {
   upstreamModelId: upstreamModels.upstreamModelId,
   providerConnectionId: upstreamModels.providerConnectionId,
   providerConnectionName: providerConnections.displayName,
+  bindingId: upstreamModels.bindingId,
+  tokenId: upstreamModels.tokenId,
   apiFormat: upstreamModels.apiFormat,
   providerBasePath: upstreamModels.providerBasePath,
   requestPathOverride: upstreamModels.requestPathOverride,
@@ -205,18 +211,14 @@ export async function dashboardRoutes(app: FastifyInstance) {
   );
   app.post('/api/connections', async (req, reply) => {
     const input = providerConnectionInputSchema.parse(req.body);
-    if (!input.apiKey) return reply.code(400).send({ error: 'Provider API key is required' });
     const baseUrl = await validateUpstreamUrl(
       input.baseUrl,
       app.config.ALLOW_PRIVATE_UPSTREAMS,
       app.config.NODE_ENV === 'production',
     );
-    const encrypted = encryptCredential(input.apiKey, app.config.CREDENTIAL_ENCRYPTION_KEY);
-    const values = { ...input };
-    delete values.apiKey;
     const [connection] = await app.db
       .insert(providerConnections)
-      .values({ ...values, baseUrl, userId: req.dashboardUser!.id, ...encrypted })
+      .values({ ...input, baseUrl, userId: req.dashboardUser!.id })
       .returning(safeConnection);
     return reply.code(201).send(connection);
   });
@@ -229,17 +231,11 @@ export async function dashboardRoutes(app: FastifyInstance) {
           app.config.NODE_ENV === 'production',
         )
       : undefined;
-    const encrypted = input.apiKey
-      ? encryptCredential(input.apiKey, app.config.CREDENTIAL_ENCRYPTION_KEY)
-      : {};
-    const values = { ...input };
-    delete values.apiKey;
     const [connection] = await app.db
       .update(providerConnections)
       .set({
-        ...values,
+        ...input,
         ...(baseUrl ? { baseUrl } : {}),
-        ...encrypted,
         updatedAt: new Date(),
       })
       .where(
@@ -262,6 +258,224 @@ export async function dashboardRoutes(app: FastifyInstance) {
     return connection
       ? { ok: true }
       : reply.code(404).send({ error: 'Provider connection not found' });
+  });
+
+  // ── Connection tokens ────────────────────────────────────────
+  const safeToken = {
+    id: connectionTokens.id,
+    name: connectionTokens.name,
+    enabled: connectionTokens.enabled,
+    createdAt: connectionTokens.createdAt,
+    updatedAt: connectionTokens.updatedAt,
+  };
+  app.get('/api/connections/:id/tokens', async (req, reply) => {
+    const connectionId = (req.params as { id: string }).id;
+    if (!(await ownsConnection(app, req.dashboardUser!.id, connectionId)))
+      return reply.code(404).send({ error: 'Provider connection not found' });
+    return app.db
+      .select(safeToken)
+      .from(connectionTokens)
+      .where(eq(connectionTokens.connectionId, connectionId))
+      .orderBy(desc(connectionTokens.createdAt));
+  });
+  app.post('/api/connections/:id/tokens', async (req, reply) => {
+    const connectionId = (req.params as { id: string }).id;
+    if (!(await ownsConnection(app, req.dashboardUser!.id, connectionId)))
+      return reply.code(404).send({ error: 'Provider connection not found' });
+    const input = connectionTokenInputSchema.parse(req.body);
+    const encrypted = encryptCredential(input.apiKey, app.config.CREDENTIAL_ENCRYPTION_KEY);
+    const { apiKey: _, ...rest } = input;
+    try {
+      const [token] = await app.db
+        .insert(connectionTokens)
+        .values({
+          ...rest,
+          userId: req.dashboardUser!.id,
+          connectionId,
+          ...encrypted,
+        })
+        .returning(safeToken);
+      // Auto-create upstream_models for all bindings on this connection
+      await createUpstreamModelsForToken(app, req.dashboardUser!.id, connectionId, token!.id);
+      return reply.code(201).send(token);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('23505'))
+        return reply.code(409).send({ error: 'A token with this name already exists on this connection.' });
+      throw error;
+    }
+  });
+  app.patch('/api/connections/:id/tokens/:tokenId', async (req, reply) => {
+    const connectionId = (req.params as { id: string }).id;
+    const tokenId = (req.params as { tokenId: string }).tokenId;
+    if (!(await ownsConnection(app, req.dashboardUser!.id, connectionId)))
+      return reply.code(404).send({ error: 'Provider connection not found' });
+    const input = connectionTokenUpdateSchema.parse(req.body);
+    const encrypted = input.apiKey
+      ? encryptCredential(input.apiKey, app.config.CREDENTIAL_ENCRYPTION_KEY)
+      : {};
+    const { apiKey: _, ...rest } = input;
+    const [token] = await app.db
+      .update(connectionTokens)
+      .set({
+        ...rest,
+        ...encrypted,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(connectionTokens.id, tokenId),
+          eq(connectionTokens.connectionId, connectionId),
+          eq(connectionTokens.userId, req.dashboardUser!.id),
+        ),
+      )
+      .returning(safeToken);
+    return token ?? reply.code(404).send({ error: 'Token not found' });
+  });
+  app.delete('/api/connections/:id/tokens/:tokenId', async (req, reply) => {
+    const connectionId = (req.params as { id: string }).id;
+    const tokenId = (req.params as { tokenId: string }).tokenId;
+    if (!(await ownsConnection(app, req.dashboardUser!.id, connectionId)))
+      return reply.code(404).send({ error: 'Provider connection not found' });
+    // Find upstream_models to delete
+    const affectedModels = await app.db
+      .select({ id: upstreamModels.id })
+      .from(upstreamModels)
+      .where(
+        and(
+          eq(upstreamModels.tokenId, tokenId),
+          eq(upstreamModels.userId, req.dashboardUser!.id),
+        ),
+      );
+    const modelIds = affectedModels.map((m) => m.id);
+    if (modelIds.length) {
+      await app.db
+        .delete(mappingRoutes)
+        .where(inArray(mappingRoutes.upstreamModelId, modelIds));
+      await app.db
+        .delete(upstreamModels)
+        .where(inArray(upstreamModels.id, modelIds));
+    }
+    const [token] = await app.db
+      .delete(connectionTokens)
+      .where(
+        and(
+          eq(connectionTokens.id, tokenId),
+          eq(connectionTokens.connectionId, connectionId),
+          eq(connectionTokens.userId, req.dashboardUser!.id),
+        ),
+      )
+      .returning({ id: connectionTokens.id });
+    return token ? { ok: true } : reply.code(404).send({ error: 'Token not found' });
+  });
+
+  // ── Model bindings ───────────────────────────────────────────
+  const safeBinding = {
+    id: modelBindings.id,
+    presetId: modelBindings.presetId,
+    presetDisplayName: modelPresets.displayName,
+    connectionId: modelBindings.connectionId,
+    apiFormat: modelBindings.apiFormat,
+    providerBasePath: modelBindings.providerBasePath,
+    createdAt: modelBindings.createdAt,
+    updatedAt: modelBindings.updatedAt,
+  };
+  app.get('/api/connections/:id/bindings', async (req, reply) => {
+    const connectionId = (req.params as { id: string }).id;
+    if (!(await ownsConnection(app, req.dashboardUser!.id, connectionId)))
+      return reply.code(404).send({ error: 'Provider connection not found' });
+    return app.db
+      .select(safeBinding)
+      .from(modelBindings)
+      .innerJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
+      .where(
+        and(
+          eq(modelBindings.connectionId, connectionId),
+          eq(modelBindings.userId, req.dashboardUser!.id),
+        ),
+      )
+      .orderBy(desc(modelBindings.createdAt));
+  });
+  app.post('/api/connections/:id/bindings', async (req, reply) => {
+    const connectionId = (req.params as { id: string }).id;
+    if (!(await ownsConnection(app, req.dashboardUser!.id, connectionId)))
+      return reply.code(404).send({ error: 'Provider connection not found' });
+    const input = modelBindingInputSchema.parse(req.body);
+    // Look up preset
+    const [preset] = await app.db
+      .select()
+      .from(modelPresets)
+      .where(
+        and(
+          eq(modelPresets.id, input.presetId),
+          or(isNull(modelPresets.userId), eq(modelPresets.userId, req.dashboardUser!.id)),
+        ),
+      )
+      .limit(1);
+    if (!preset) return reply.code(404).send({ error: 'Preset not found' });
+    const apiFormat = input.apiFormat ?? preset.apiFormat;
+    try {
+      const [binding] = await app.db
+        .insert(modelBindings)
+        .values({
+          userId: req.dashboardUser!.id,
+          presetId: input.presetId,
+          connectionId,
+          apiFormat,
+          providerBasePath: input.providerBasePath,
+        })
+        .returning(safeBinding);
+      // Auto-create upstream_models for all enabled tokens on this connection
+      await createUpstreamModelsForBinding(
+        app,
+        req.dashboardUser!.id,
+        connectionId,
+        binding!.id,
+        preset,
+        apiFormat,
+        input.providerBasePath,
+      );
+      return reply.code(201).send(binding);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('23505'))
+        return reply.code(409).send({ error: 'This preset is already bound to this connection with the same API format.' });
+      throw error;
+    }
+  });
+  app.delete('/api/connections/:id/bindings/:bindingId', async (req, reply) => {
+    const connectionId = (req.params as { id: string }).id;
+    const bindingId = (req.params as { bindingId: string }).bindingId;
+    if (!(await ownsConnection(app, req.dashboardUser!.id, connectionId)))
+      return reply.code(404).send({ error: 'Provider connection not found' });
+    // Find upstream_models to delete
+    const affectedModels = await app.db
+      .select({ id: upstreamModels.id })
+      .from(upstreamModels)
+      .where(
+        and(
+          eq(upstreamModels.bindingId, bindingId),
+          eq(upstreamModels.userId, req.dashboardUser!.id),
+        ),
+      );
+    const modelIds = affectedModels.map((m) => m.id);
+    if (modelIds.length) {
+      await app.db
+        .delete(mappingRoutes)
+        .where(inArray(mappingRoutes.upstreamModelId, modelIds));
+      await app.db
+        .delete(upstreamModels)
+        .where(inArray(upstreamModels.id, modelIds));
+    }
+    const [binding] = await app.db
+      .delete(modelBindings)
+      .where(
+        and(
+          eq(modelBindings.id, bindingId),
+          eq(modelBindings.connectionId, connectionId),
+          eq(modelBindings.userId, req.dashboardUser!.id),
+        ),
+      )
+      .returning({ id: modelBindings.id });
+    return binding ? { ok: true } : reply.code(404).send({ error: 'Binding not found' });
   });
 
   app.get('/api/models', async (req) => listModels(app, req.dashboardUser!.id));
@@ -367,46 +581,6 @@ export async function dashboardRoutes(app: FastifyInstance) {
       .where(and(eq(modelPresets.id, id), eq(modelPresets.userId, req.dashboardUser!.id)))
       .returning({ id: modelPresets.id });
     return preset ? { ok: true } : reply.code(404).send({ error: 'Preset not found' });
-  });
-  app.post('/api/presets/:presetId/link', async (req, reply) => {
-    const presetId = (req.params as { presetId: string }).presetId;
-    const input = presetLinkSchema.parse(req.body);
-    if (!(await ownsConnection(app, req.dashboardUser!.id, input.providerConnectionId))) {
-      return reply.code(403).send({ error: 'Provider connection not found' });
-    }
-    const [preset] = await app.db
-      .select(safePreset)
-      .from(modelPresets)
-      .where(
-        and(
-          eq(modelPresets.id, presetId),
-          or(isNull(modelPresets.userId), eq(modelPresets.userId, req.dashboardUser!.id)),
-        ),
-      )
-      .limit(1);
-    if (!preset) return reply.code(404).send({ error: 'Preset not found' });
-    const displayName = input.displayName ?? preset.displayName;
-    try {
-      const [created] = await app.db
-        .insert(upstreamModels)
-        .values({
-          userId: req.dashboardUser!.id,
-          displayName,
-          upstreamModelId: preset.upstreamModelId,
-          providerConnectionId: input.providerConnectionId,
-          apiFormat: preset.apiFormat,
-          providerBasePath: input.providerBasePath,
-          supportsImages: preset.supportsImages as 'yes' | 'no',
-          supportsReasoning: preset.supportsReasoning as 'yes' | 'no',
-          maxOutputTokens: preset.maxOutputTokens,
-        })
-        .returning({ id: upstreamModels.id });
-      return reply.code(201).send((await getModel(app, req.dashboardUser!.id, created!.id))!);
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('23505'))
-        return reply.code(409).send({ error: 'This upstream model ID already exists on this connection.' });
-      throw error;
-    }
   });
 
   app.get('/api/mappings', async (req) => {
@@ -655,6 +829,111 @@ async function getModel(app: FastifyInstance, userId: string, id: string) {
     .where(and(eq(upstreamModels.id, id), eq(upstreamModels.userId, userId)))
     .limit(1);
   return model;
+}
+
+async function createUpstreamModelsForToken(
+  app: FastifyInstance,
+  userId: string,
+  connectionId: string,
+  tokenId: string,
+) {
+  // Get the token and connection for display name
+  const [token] = await app.db
+    .select({ name: connectionTokens.name })
+    .from(connectionTokens)
+    .where(eq(connectionTokens.id, tokenId))
+    .limit(1);
+  const [connection] = await app.db
+    .select({ displayName: providerConnections.displayName })
+    .from(providerConnections)
+    .where(eq(providerConnections.id, connectionId))
+    .limit(1);
+  if (!token || !connection) return;
+
+  // Get all bindings on this connection
+  const bindings = await app.db
+    .select()
+    .from(modelBindings)
+    .where(eq(modelBindings.connectionId, connectionId));
+
+  for (const binding of bindings) {
+    // Get the preset
+    const [preset] = await app.db
+      .select()
+      .from(modelPresets)
+      .where(eq(modelPresets.id, binding.presetId))
+      .limit(1);
+    if (!preset) continue;
+
+    const displayName = `${preset.displayName} (${token.name} @ ${connection.displayName})`;
+    try {
+      await app.db.insert(upstreamModels).values({
+        userId,
+        displayName,
+        upstreamModelId: preset.upstreamModelId,
+        providerConnectionId: connectionId,
+        bindingId: binding.id,
+        tokenId,
+        apiFormat: binding.apiFormat,
+        providerBasePath: binding.providerBasePath,
+        supportsImages: preset.supportsImages as 'yes' | 'no',
+        supportsReasoning: preset.supportsReasoning as 'yes' | 'no',
+        maxOutputTokens: preset.maxOutputTokens,
+      });
+    } catch {
+      // Unique constraint violation — model already exists, skip
+    }
+  }
+}
+
+async function createUpstreamModelsForBinding(
+  app: FastifyInstance,
+  userId: string,
+  connectionId: string,
+  bindingId: string,
+  preset: { displayName: string; upstreamModelId: string; apiFormat: string; supportsImages: string; supportsReasoning: string; maxOutputTokens: number | null },
+  apiFormat: string,
+  providerBasePath: string,
+) {
+  // Get the connection for display name
+  const [connection] = await app.db
+    .select({ displayName: providerConnections.displayName })
+    .from(providerConnections)
+    .where(eq(providerConnections.id, connectionId))
+    .limit(1);
+  if (!connection) return;
+
+  // Get all enabled tokens on this connection
+  const tokens = await app.db
+    .select({ id: connectionTokens.id, name: connectionTokens.name })
+    .from(connectionTokens)
+    .where(
+      and(
+        eq(connectionTokens.connectionId, connectionId),
+        eq(connectionTokens.enabled, true),
+      ),
+    );
+
+  for (const token of tokens) {
+    const displayName = `${preset.displayName} (${token.name} @ ${connection.displayName})`;
+    try {
+      await app.db.insert(upstreamModels).values({
+        userId,
+        displayName,
+        upstreamModelId: preset.upstreamModelId,
+        providerConnectionId: connectionId,
+        bindingId,
+        tokenId: token.id,
+        apiFormat: apiFormat as any,
+        providerBasePath,
+        supportsImages: preset.supportsImages as 'yes' | 'no',
+        supportsReasoning: preset.supportsReasoning as 'yes' | 'no',
+        maxOutputTokens: preset.maxOutputTokens,
+      });
+    } catch {
+      // Unique constraint violation — model already exists, skip
+    }
+  }
 }
 async function ensureMapping(app: FastifyInstance, userId: string, alias: string) {
   const [existing] = await app.db
