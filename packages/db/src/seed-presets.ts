@@ -27,17 +27,12 @@ const ssl =
 const { db, pool } = createDb(url, ssl);
 
 const systemPresets = [
-  { displayName: 'Claude Sonnet 4', upstreamModelId: 'claude-sonnet-4-20250514', apiFormat: 'anthropic_compatible', supportsImages: 'yes', supportsReasoning: 'yes', maxOutputTokens: 64000 },
-  { displayName: 'Claude Opus 4', upstreamModelId: 'claude-opus-4-20250514', apiFormat: 'anthropic_compatible', supportsImages: 'yes', supportsReasoning: 'yes', maxOutputTokens: 32000 },
-  { displayName: 'Claude Haiku 3.5', upstreamModelId: 'claude-3-5-haiku-20241022', apiFormat: 'anthropic_compatible', supportsImages: 'yes', supportsReasoning: 'no', maxOutputTokens: 8192 },
-  { displayName: 'GPT-4o', upstreamModelId: 'gpt-4o', apiFormat: 'openai_compatible', supportsImages: 'yes', supportsReasoning: 'no', maxOutputTokens: 16384 },
-  { displayName: 'GPT-4o-mini', upstreamModelId: 'gpt-4o-mini', apiFormat: 'openai_compatible', supportsImages: 'yes', supportsReasoning: 'no', maxOutputTokens: 16384 },
-  { displayName: 'o3', upstreamModelId: 'o3', apiFormat: 'openai_compatible', supportsImages: 'yes', supportsReasoning: 'yes', maxOutputTokens: 100000 },
-  { displayName: 'o4-mini', upstreamModelId: 'o4-mini', apiFormat: 'openai_compatible', supportsImages: 'yes', supportsReasoning: 'yes', maxOutputTokens: 100000 },
-  { displayName: 'DeepSeek R1', upstreamModelId: 'deepseek-reasoner', apiFormat: 'openai_compatible', supportsImages: 'no', supportsReasoning: 'yes', maxOutputTokens: 65536 },
-  { displayName: 'DeepSeek V3', upstreamModelId: 'deepseek-chat', apiFormat: 'openai_compatible', supportsImages: 'no', supportsReasoning: 'no', maxOutputTokens: 8192 },
-  { displayName: 'Gemini 2.5 Pro', upstreamModelId: 'gemini-2.5-pro-preview-05-06', apiFormat: 'openai_compatible', supportsImages: 'yes', supportsReasoning: 'yes', maxOutputTokens: 65536 },
+  { displayName: 'DeepSeek V4 Pro', upstreamModelId: 'deepseek-v4-pro', apiFormat: 'openai_compatible', supportsImages: 'no', supportsReasoning: 'yes', maxOutputTokens: 65536 },
+  { displayName: 'Mimo 2.5', upstreamModelId: 'mimo-v2.5', apiFormat: 'openai_compatible', supportsImages: 'no', supportsReasoning: 'no', maxOutputTokens: 8192 },
+  { displayName: 'Mimo 2.5 Pro', upstreamModelId: 'mimo-v2.5-pro', apiFormat: 'openai_compatible', supportsImages: 'no', supportsReasoning: 'yes', maxOutputTokens: 16384 },
 ];
+
+await db.execute(sql`DELETE FROM model_presets WHERE user_id IS NULL`);
 
 for (const preset of systemPresets) {
   await db.execute(sql`
