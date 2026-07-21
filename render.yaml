@@ -9,7 +9,7 @@ services:
     name: passthrough
     runtime: node
     plan: starter
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    buildCommand: pnpm install --frozen-lockfile && pnpm run build
     preDeployCommand: pnpm db:migrate
     startCommand: pnpm start
     healthCheckPath: /health

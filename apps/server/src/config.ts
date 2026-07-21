@@ -22,6 +22,7 @@ let loadedEnvDirectory: string | undefined;
 
 export function loadEnvironmentFile(startDirectory = process.cwd()) {
   let directory = resolve(startDirectory);
+  let workspaceDirectory: string | undefined;
   while (true) {
     const candidate = resolve(directory, '.env');
     if (existsSync(candidate)) {
@@ -29,8 +30,12 @@ export function loadEnvironmentFile(startDirectory = process.cwd()) {
       loadedEnvDirectory = directory;
       return candidate;
     }
+    if (existsSync(resolve(directory, 'pnpm-workspace.yaml'))) workspaceDirectory = directory;
     const parent = dirname(directory);
-    if (parent === directory) return undefined;
+    if (parent === directory) {
+      loadedEnvDirectory = workspaceDirectory ?? resolve(startDirectory);
+      return undefined;
+    }
     directory = parent;
   }
 }
