@@ -205,7 +205,7 @@ export async function gatewayRoutes(app: FastifyInstance) {
       const [t] = await app.db
         .select()
         .from(connectionTokens)
-        .where(eq(connectionTokens.id, row.model.tokenId))
+        .where(and(eq(connectionTokens.id, row.model.tokenId), eq(connectionTokens.enabled, true)))
         .limit(1);
       token = t ?? null;
     }
@@ -338,6 +338,14 @@ async function resolve(
         providerConnections,
         eq(providerConnections.id, upstreamModels.providerConnectionId),
       )
+      // Inner join (not left) so a model with no token, or a token that's been disabled
+      // since the model was created, drops out of candidacy entirely — it could never
+      // succeed anyway (callModel rejects a null/disabled token), and leaving it in the
+      // list would let it consume this request's only attempt instead of a real candidate.
+      .innerJoin(
+        connectionTokens,
+        and(eq(connectionTokens.id, upstreamModels.tokenId), eq(connectionTokens.enabled, true)),
+      )
       .where(
         and(
           eq(mappingRoutes.mappingId, mapping.id),
@@ -361,6 +369,11 @@ async function resolve(
       .innerJoin(
         providerConnections,
         eq(providerConnections.id, upstreamModels.providerConnectionId),
+      )
+      // See the mapping-branch join above for why this must be an inner join.
+      .innerJoin(
+        connectionTokens,
+        and(eq(connectionTokens.id, upstreamModels.tokenId), eq(connectionTokens.enabled, true)),
       )
       .where(
         and(
