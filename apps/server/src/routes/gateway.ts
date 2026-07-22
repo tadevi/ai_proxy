@@ -5,6 +5,7 @@ import {
   connectionTokens,
   mappingRoutes,
   mappings,
+  modelBindings,
   modelUsageDaily,
   providerConnections,
   requestLogs,
@@ -234,7 +235,6 @@ export async function gatewayRoutes(app: FastifyInstance) {
         .set({
           latestTestStatus: 'healthy',
           latestTestAt: new Date(),
-          cooldownUntil: null,
           latestError: null,
           latestErrorAt: null,
         })
@@ -312,6 +312,17 @@ async function attachRules<T extends { resolved: ResolvedModelBase }>(
   }));
 }
 
+// Deterministic tiebreak for candidates that tie on the caller's primary order
+// (mapping position, or nothing for direct model-id lookups): prefer the token/model
+// pairing with the healthiest last test, then the oldest configured, then a final id
+// tiebreak. Stability here matters so repeat requests keep hitting the same upstream
+// API key and can benefit from that provider's prompt/KV caching, not just tidiness.
+const tokenHealthOrder = [
+  sql`case ${upstreamModels.latestTestStatus} when 'healthy' then 0 when 'failed' then 2 else 1 end`,
+  asc(upstreamModels.createdAt),
+  asc(upstreamModels.id),
+];
+
 async function resolve(
   app: FastifyInstance,
   userId: string,
@@ -326,25 +337,29 @@ async function resolve(
     .limit(1);
   let models: Array<{ resolved: ResolvedModelBase; position: number }>;
   if (mapping) {
+    // A mapping route picks a binding (model + provider), not a specific token — fan
+    // out across every token currently serving that binding, then let the same
+    // health-first ordering used below pick which one goes first within that binding's
+    // slot in the fallback chain.
     const rows = await app.db
-      .select({
-        model: upstreamModels,
-        connection: providerConnections,
-        position: mappingRoutes.position,
-      })
+      .select({ model: upstreamModels, connection: providerConnections })
       .from(mappingRoutes)
-      .innerJoin(upstreamModels, eq(upstreamModels.id, mappingRoutes.upstreamModelId))
+      .innerJoin(modelBindings, eq(modelBindings.id, mappingRoutes.bindingId))
+      .innerJoin(upstreamModels, eq(upstreamModels.bindingId, modelBindings.id))
       .innerJoin(
         providerConnections,
         eq(providerConnections.id, upstreamModels.providerConnectionId),
       )
-      // Inner join (not left) so a model with no token, or a token that's been disabled
-      // since the model was created, drops out of candidacy entirely — it could never
-      // succeed anyway (callModel rejects a null/disabled token), and leaving it in the
-      // list would let it consume this request's only attempt instead of a real candidate.
+      // Inner join (not left) so a token that's disabled or in cooldown drops out of
+      // candidacy entirely — it could never succeed anyway, and leaving it in would let
+      // it consume this request's only attempt instead of a real candidate.
       .innerJoin(
         connectionTokens,
-        and(eq(connectionTokens.id, upstreamModels.tokenId), eq(connectionTokens.enabled, true)),
+        and(
+          eq(connectionTokens.id, upstreamModels.tokenId),
+          eq(connectionTokens.enabled, true),
+          or(isNull(connectionTokens.cooldownUntil), lte(connectionTokens.cooldownUntil, new Date())),
+        ),
       )
       .where(
         and(
@@ -352,12 +367,11 @@ async function resolve(
           eq(mappingRoutes.enabled, true),
           eq(upstreamModels.enabled, true),
           eq(providerConnections.enabled, true),
-          or(isNull(upstreamModels.cooldownUntil), lte(upstreamModels.cooldownUntil, new Date())),
         ),
       )
-      .orderBy(asc(mappingRoutes.position));
+      .orderBy(asc(mappingRoutes.position), ...tokenHealthOrder);
     const resolved = await attachTokens(app, rows);
-    models = resolved.map((r, i) => ({ resolved: r, position: rows[i]!.position }));
+    models = resolved.map((r, position) => ({ resolved: r, position }));
   } else {
     // No explicit mapping: multiple upstream_models can share this public model id
     // (different connections, or different tokens on the same connection). Fetch every
@@ -373,7 +387,11 @@ async function resolve(
       // See the mapping-branch join above for why this must be an inner join.
       .innerJoin(
         connectionTokens,
-        and(eq(connectionTokens.id, upstreamModels.tokenId), eq(connectionTokens.enabled, true)),
+        and(
+          eq(connectionTokens.id, upstreamModels.tokenId),
+          eq(connectionTokens.enabled, true),
+          or(isNull(connectionTokens.cooldownUntil), lte(connectionTokens.cooldownUntil, new Date())),
+        ),
       )
       .where(
         and(
@@ -381,17 +399,9 @@ async function resolve(
           eq(upstreamModels.upstreamModelId, incoming),
           eq(upstreamModels.enabled, true),
           eq(providerConnections.enabled, true),
-          or(isNull(upstreamModels.cooldownUntil), lte(upstreamModels.cooldownUntil, new Date())),
         ),
       )
-      .orderBy(
-        sql`case ${upstreamModels.latestTestStatus} when 'healthy' then 0 when 'failed' then 2 else 1 end`,
-        asc(upstreamModels.createdAt),
-        // Tiebreaker so the pick is fully deterministic even if createdAt ever collides —
-        // stability here matters so repeat requests keep hitting the same upstream API key
-        // and can benefit from that provider's prompt/KV caching, not just for its own sake.
-        asc(upstreamModels.id),
-      );
+      .orderBy(...tokenHealthOrder);
     const resolved = await attachTokens(app, rows);
     models = resolved.map((r, position) => ({ resolved: r, position }));
   }
@@ -498,7 +508,7 @@ async function handleMessage(
               await new Promise<void>((resolve) => reply.raw.once('drain', resolve));
           }
           reply.raw.end();
-          await clearModelError(app, attempt.resolved.model.id);
+          await recordModelSuccess(app, attempt.resolved.model.id);
           await writeLog(app, {
             userId,
             requestId,
@@ -539,7 +549,7 @@ async function handleMessage(
       const usage = body.usage as Record<string, number> | undefined;
       const cacheTokens =
         (usage?.cache_creation_input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0);
-      await clearModelError(app, attempt.resolved.model.id);
+      await recordModelSuccess(app, attempt.resolved.model.id);
       await writeLog(app, {
         userId,
         requestId,
@@ -576,7 +586,7 @@ async function handleMessage(
         errorCategory: failure.category,
         providerError: failure.providerError,
       });
-      await setModelError(app, attempt.resolved.model.id, failure);
+      await recordModelFailure(app, attempt.resolved.model.id, failure);
       const imageRoutingFailure =
         requestContainsImages(request) && isImageCapabilityFailure(failure);
       if (imageRoutingFailure) {
@@ -590,25 +600,28 @@ async function handleMessage(
             resolvedUpstreamModelId: attempt.resolved.model.id,
         });
       }
-      if (cooldownStatuses.has(failure.status)) {
+      // Quota/auth failures (403 cooldown, 401/402 disable) are about the credential,
+      // not whichever model happened to be using it — recorded on the token so every
+      // binding sharing that token is protected immediately, not just this one.
+      if (cooldownStatuses.has(failure.status) && attempt.resolved.token) {
         const cooldownUntil = new Date(Date.now() + cooldownDurationMs);
         await app.db
-          .update(upstreamModels)
-          .set({ cooldownUntil, updatedAt: new Date() })
-          .where(eq(upstreamModels.id, attempt.resolved.model.id));
-        logWarn('model placed in cooldown after upstream quota or access failure', {
+          .update(connectionTokens)
+          .set({ cooldownUntil, latestError: failure.providerError ?? null, latestErrorAt: new Date(), updatedAt: new Date() })
+          .where(eq(connectionTokens.id, attempt.resolved.token.id));
+        logWarn('token placed in cooldown after upstream quota or access failure', {
           requestId,
           resolvedUpstreamModel: attempt.resolved.model.displayName,
             resolvedUpstreamModelId: attempt.resolved.model.id,
           cooldownUntil: cooldownUntil.toISOString(),
         });
       }
-      if (isDisableError(failure.status, failure.providerError)) {
+      if (isDisableError(failure.status, failure.providerError) && attempt.resolved.token) {
         await app.db
-          .update(upstreamModels)
-          .set({ enabled: false, updatedAt: new Date() })
-          .where(eq(upstreamModels.id, attempt.resolved.model.id));
-        logWarn('model auto-disabled after upstream payment or auth failure', {
+          .update(connectionTokens)
+          .set({ enabled: false, latestError: failure.providerError ?? null, latestErrorAt: new Date(), updatedAt: new Date() })
+          .where(eq(connectionTokens.id, attempt.resolved.token.id));
+        logWarn('token auto-disabled after upstream payment or auth failure', {
           requestId,
           resolvedUpstreamModel: attempt.resolved.model.displayName,
             resolvedUpstreamModelId: attempt.resolved.model.id,
@@ -832,17 +845,28 @@ function requestEndpoint(model: Model, connection: ProviderConnection) {
   return `${connection.baseUrl.replace(/\/+$/, '')}${model.requestPathOverride ?? `${model.providerBasePath}${defaultPath}`}`;
 }
 
-async function clearModelError(app: FastifyInstance, modelId: string) {
-  await app.db
-    .update(upstreamModels)
-    .set({ latestError: null, latestErrorAt: null, updatedAt: new Date() })
-    .where(eq(upstreamModels.id, modelId));
-}
-
-async function setModelError(app: FastifyInstance, modelId: string, failure: UpstreamFailure) {
+// Live-traffic outcomes feed the same latestTestStatus a manual "Test" click sets, so
+// the dashboard's health badge reflects whichever happened most recently instead of
+// going stale after real requests keep succeeding/failing without anyone clicking Test.
+async function recordModelSuccess(app: FastifyInstance, modelId: string) {
   await app.db
     .update(upstreamModels)
     .set({
+      latestTestStatus: 'healthy',
+      latestTestAt: new Date(),
+      latestError: null,
+      latestErrorAt: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(upstreamModels.id, modelId));
+}
+
+async function recordModelFailure(app: FastifyInstance, modelId: string, failure: UpstreamFailure) {
+  await app.db
+    .update(upstreamModels)
+    .set({
+      latestTestStatus: 'failed',
+      latestTestAt: new Date(),
       latestError: failure.providerError ?? {
         upstreamStatus: failure.status,
         errorCategory: failure.category,

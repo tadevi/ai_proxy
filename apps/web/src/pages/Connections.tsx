@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type ProviderConnection, type ConnectionToken, type ModelBinding, type Model, type Preset } from '../api';
+import { api, type ProviderConnection, type ConnectionToken, type ModelBinding, type Preset } from '../api';
+import { latestErrorMessage } from '../format';
 
 type ConnectionForm = {
   displayName: string;
@@ -37,35 +38,6 @@ const bindingDefaults: BindingForm = {
   providerBasePath: '',
 };
 
-function latestErrorMessage(error?: Record<string, unknown> | null) {
-  if (!error) return undefined;
-  const response = error.response;
-  if (response && typeof response === 'object' && !Array.isArray(response)) {
-    const message = (response as Record<string, unknown>).message;
-    if (typeof message === 'string') return message;
-    const nested = (response as Record<string, unknown>).error;
-    if (
-      nested &&
-      typeof nested === 'object' &&
-      typeof (nested as Record<string, unknown>).message === 'string'
-    )
-      return (nested as Record<string, unknown>).message as string;
-  }
-  if (typeof error.responseText === 'string') {
-    const match = error.responseText.match(/data:(.+)/);
-    if (match?.[1]) {
-      try {
-        const message = (JSON.parse(match[1]) as { message?: unknown }).message;
-        if (typeof message === 'string') return message;
-      } catch {
-        // Use the raw text below when an SSE error cannot be parsed.
-      }
-    }
-    return error.responseText;
-  }
-  return typeof error.message === 'string' ? error.message : 'An upstream error was recorded.';
-}
-
 export function Connections() {
   const qc = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -73,8 +45,6 @@ export function Connections() {
   const [showBindPreset, setShowBindPreset] = useState<string | null>(null);
   const [editing, setEditing] = useState<ProviderConnection | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [testingId, setTestingId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
 
   const connections = useQuery({
     queryKey: ['connections'],
@@ -91,11 +61,6 @@ export function Connections() {
     queryKey: ['bindings', expandedId],
     queryFn: () => api<ModelBinding[]>(`/api/connections/${expandedId}/bindings`),
     enabled: !!expandedId,
-  });
-
-  const models = useQuery({
-    queryKey: ['models'],
-    queryFn: () => api<Model[]>('/api/models'),
   });
 
   const presets = useQuery({
@@ -157,6 +122,26 @@ export function Connections() {
     },
   });
 
+  const toggleToken = useMutation({
+    mutationFn: ({
+      connectionId,
+      tokenId,
+      enabled,
+    }: {
+      connectionId: string;
+      tokenId: string;
+      enabled: boolean;
+    }) =>
+      api(`/api/connections/${connectionId}/tokens/${tokenId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled }),
+      }),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['tokens', variables.connectionId] });
+      qc.invalidateQueries({ queryKey: ['models'] });
+    },
+  });
+
   const addBinding = useMutation({
     mutationFn: ({
       connectionId,
@@ -193,39 +178,14 @@ export function Connections() {
     },
   });
 
-  const testModel = useMutation({
-    mutationFn: (id: string) =>
-      api<{ message: string }>(`/api/models/${id}/test`, { method: 'POST' }),
-    onMutate: (id) => {
-      setTestingId(id);
-      setNotice(null);
-    },
-    onSuccess: (result) => {
-      setNotice({ tone: 'success', message: result.message });
-      qc.invalidateQueries({ queryKey: ['models'] });
-    },
-    onError: (error) => setNotice({ tone: 'error', message: error.message }),
-    onSettled: () => setTestingId(null),
-  });
-
-  const toggleModel = useMutation({
-    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
-      api(`/api/models/${id}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['models'] });
-    },
-  });
-
-  const connectionModels = (connectionId: string) =>
-    (models.data ?? []).filter((m) => m.providerConnectionId === connectionId);
-
   return (
     <>
       <div className="mb-6 flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Provider connections</h1>
           <p className="muted mt-1">
-            Connections hold base URLs, tokens, and preset bindings. Model instances are auto-generated.
+            Connections hold base URLs, tokens, and preset bindings. See the Models tab for
+            per-token instance status.
           </p>
         </div>
         <button
@@ -271,7 +231,6 @@ export function Connections() {
       <div className="grid gap-4">
         {connections.data?.map((connection) => {
           const isExpanded = expandedId === connection.id;
-          const instanceModels = connectionModels(connection.id);
           return (
             <div className="card overflow-hidden" key={connection.id}>
               {/* Header row */}
@@ -326,26 +285,61 @@ export function Connections() {
                       <span>Tokens ({tokens.data?.length ?? 0})</span>
                     </summary>
                     <div className="mt-2 rounded-lg border border-zinc-800 bg-zinc-950">
-                      {tokens.data?.map((token) => (
-                        <div
-                          className={`flex items-center gap-3 border-b border-zinc-800/60 px-4 py-2.5 last:border-b-0 ${!token.enabled ? 'opacity-60' : ''}`}
-                          key={token.id}
-                        >
-                          <span
-                            className={`inline-block h-2 w-2 shrink-0 rounded-full ${token.enabled ? 'bg-emerald-400' : 'bg-zinc-600'}`}
-                          />
-                          <span className="min-w-0 flex-1 truncate text-sm">{token.name}</span>
-                          <button
-                            className="btn btn-danger h-7 px-2.5 text-xs"
-                            onClick={() =>
-                              confirm(`Delete token "${token.name}"?`) &&
-                              deleteToken.mutate({ connectionId: connection.id, tokenId: token.id })
-                            }
+                      {tokens.data?.map((token) => {
+                        const cooling =
+                          !!token.cooldownUntil && new Date(token.cooldownUntil) > new Date();
+                        const errorMessage = latestErrorMessage(token.latestError);
+                        return (
+                          <div
+                            className={`flex items-center gap-3 border-b border-zinc-800/60 px-4 py-2.5 last:border-b-0 ${!token.enabled ? 'opacity-60' : ''}`}
+                            key={token.id}
                           >
-                            Delete
-                          </button>
-                        </div>
-                      ))}
+                            <button
+                              aria-checked={token.enabled}
+                              aria-label={`${token.enabled ? 'Disable' : 'Enable'} ${token.name}`}
+                              className={`relative h-4 w-7 shrink-0 rounded-full transition-colors focus:outline-none ${token.enabled ? 'bg-emerald-500/80' : 'bg-zinc-700'}`}
+                              disabled={toggleToken.isPending}
+                              onClick={() =>
+                                toggleToken.mutate({
+                                  connectionId: connection.id,
+                                  tokenId: token.id,
+                                  enabled: !token.enabled,
+                                })
+                              }
+                              role="switch"
+                              title={token.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}
+                              type="button"
+                            >
+                              <span
+                                className={`absolute top-0.5 left-0.5 h-3 w-3 rounded-full bg-zinc-100 shadow-sm transition-transform ${token.enabled ? 'translate-x-3' : 'translate-x-0'}`}
+                              />
+                            </button>
+                            <div className="min-w-0 flex-1">
+                              <span className="block truncate text-sm">{token.name}</span>
+                              {token.enabled && cooling && (
+                                <span className="block truncate text-xs text-amber-400">
+                                  Cooling down until {new Date(token.cooldownUntil!).toLocaleTimeString()}
+                                  {errorMessage ? ` — ${errorMessage}` : ''}
+                                </span>
+                              )}
+                              {!token.enabled && errorMessage && (
+                                <span className="block truncate text-xs text-red-400">
+                                  Last error — {errorMessage}
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              className="btn btn-danger h-7 px-2.5 text-xs"
+                              onClick={() =>
+                                confirm(`Delete token "${token.name}"?`) &&
+                                deleteToken.mutate({ connectionId: connection.id, tokenId: token.id })
+                              }
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        );
+                      })}
                       {(!tokens.data || tokens.data.length === 0) && (
                         <p className="px-4 py-3 text-center text-sm text-zinc-500">No tokens added yet.</p>
                       )}
@@ -370,16 +364,17 @@ export function Connections() {
                           key={binding.id}
                         >
                           <div className="min-w-0 flex-1">
-                            <span className="text-sm">{binding.presetName}</span>
+                            <span className="text-sm">{binding.presetDisplayName}</span>
                             <span className="ml-2 text-xs text-zinc-500">
-                              · {binding.apiFormat === 'anthropic_compatible' ? 'Anthropic' : 'OpenAI'}
+                              {binding.presetUpstreamModelId} ·{' '}
+                              {binding.apiFormat === 'anthropic_compatible' ? 'Anthropic' : 'OpenAI'}
                               {binding.providerBasePath && ` · ${binding.providerBasePath}`}
                             </span>
                           </div>
                           <button
                             className="btn btn-danger h-7 px-2.5 text-xs"
                             onClick={() =>
-                              confirm(`Unbind "${binding.presetName}" from this connection? This will remove all associated model instances.`) &&
+                              confirm(`Unbind "${binding.presetDisplayName}" from this connection? This will remove all associated model instances.`) &&
                               deleteBinding.mutate({ connectionId: connection.id, bindingId: binding.id })
                             }
                           >
@@ -397,64 +392,6 @@ export function Connections() {
                     >
                       + Bind preset
                     </button>
-                  </details>
-
-                  {/* Model instances section */}
-                  <details open>
-                    <summary className="flex cursor-pointer items-center justify-between text-sm font-medium text-zinc-300 hover:text-white">
-                      <span>Model instances ({instanceModels.length})</span>
-                    </summary>
-                    <div className="mt-2 rounded-lg border border-zinc-800 bg-zinc-950">
-                      {instanceModels.map((m) => (
-                        <div
-                          className={`flex items-center gap-3 border-b border-zinc-800/60 px-4 py-2.5 last:border-b-0 ${!m.enabled ? 'opacity-60' : ''}`}
-                          key={m.id}
-                        >
-                          <span className="min-w-0 flex-1 truncate text-sm">
-                            {m.displayName}
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            {m.latestTestStatus && (
-                              <span
-                                className={`inline-block h-2 w-2 rounded-full ${m.latestTestStatus === 'healthy' ? 'bg-emerald-400' : 'bg-red-400'}`}
-                              />
-                            )}
-                            <span className="text-xs text-zinc-500">
-                              {m.latestTestStatus === 'healthy'
-                                ? 'Healthy'
-                                : m.latestTestStatus === 'failed'
-                                  ? 'Failed'
-                                  : '—'}
-                            </span>
-                          </div>
-                          <button
-                            aria-checked={m.enabled}
-                            aria-label={`${m.enabled ? 'Disable' : 'Enable'} ${m.displayName}`}
-                            className={`relative h-4 w-7 shrink-0 rounded-full transition-colors focus:outline-none ${m.enabled ? 'bg-emerald-500/80' : 'bg-zinc-700'}`}
-                            disabled={toggleModel.isPending}
-                            onClick={() => toggleModel.mutate({ id: m.id, enabled: !m.enabled })}
-                            role="switch"
-                            type="button"
-                          >
-                            <span
-                              className={`absolute top-0.5 left-0.5 h-3 w-3 rounded-full bg-zinc-100 shadow-sm transition-transform ${m.enabled ? 'translate-x-3' : 'translate-x-0'}`}
-                            />
-                          </button>
-                          <button
-                            className="btn h-7 px-2.5 text-xs"
-                            disabled={testingId === m.id}
-                            onClick={() => testModel.mutate(m.id)}
-                          >
-                            {testingId === m.id ? 'Testing…' : 'Test'}
-                          </button>
-                        </div>
-                      ))}
-                      {instanceModels.length === 0 && (
-                        <p className="px-4 py-3 text-center text-sm text-zinc-500">
-                          No instances. Bind a preset to create instances.
-                        </p>
-                      )}
-                    </div>
                   </details>
                 </div>
               )}
@@ -485,24 +422,6 @@ export function Connections() {
           </div>
         )}
       </div>
-
-      {notice && (
-        <div
-          className={`fixed top-5 left-1/2 z-50 w-[min(30rem,calc(100%-2rem))] -translate-x-1/2 animate-[toast-drop_220ms_ease-out] rounded-xl border px-4 py-3 shadow-xl ${notice.tone === 'success' ? 'border-emerald-700 bg-emerald-950 text-emerald-100' : 'border-red-700 bg-red-950 text-red-100'}`}
-          role="status"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <span>{notice.message}</span>
-            <button
-              className="text-lg leading-none opacity-70 hover:opacity-100"
-              onClick={() => setNotice(null)}
-              aria-label="Dismiss notification"
-            >
-              x
-            </button>
-          </div>
-        </div>
-      )}
     </>
   );
 }

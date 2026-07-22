@@ -89,6 +89,12 @@ export const connectionTokens = pgTable(
     encryptionAuthTag: text('encryption_auth_tag').notNull(),
     encryptionKeyVersion: integer('encryption_key_version').default(1).notNull(),
     enabled: boolean('enabled').default(true).notNull(),
+    // A quota/auth failure (401/402/403) belongs to the credential, not to whichever
+    // model happened to be using it — tracked here so it's shared across every binding
+    // that uses this token, instead of duplicated per upstream_models row.
+    cooldownUntil: timestamp('cooldown_until', { withTimezone: true }),
+    latestError: jsonb('latest_error'),
+    latestErrorAt: timestamp('latest_error_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -168,9 +174,11 @@ export const upstreamModels = pgTable(
     supportsImages: capability('supports_images').default('no').notNull(),
     supportsReasoning: capability('supports_reasoning').default('yes').notNull(),
     enabled: boolean('enabled').default(true).notNull(),
+    // Per-(model, token) test/request outcome stays here — a 404/format/capability
+    // problem is specific to this model, not to the credential. Only cooldown (a
+    // quota/auth failure, which is about the credential) moved to connectionTokens.
     latestTestStatus: text('latest_test_status'),
     latestTestAt: timestamp('latest_test_at', { withTimezone: true }),
-    cooldownUntil: timestamp('cooldown_until', { withTimezone: true }),
     latestError: jsonb('latest_error'),
     latestErrorAt: timestamp('latest_error_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -212,15 +220,18 @@ export const mappingRoutes = pgTable(
     mappingId: uuid('mapping_id')
       .notNull()
       .references(() => mappings.id, { onDelete: 'cascade' }),
-    upstreamModelId: uuid('upstream_model_id')
+    // A mapping route picks a binding (model + provider), not a specific token — the
+    // gateway resolves which of the binding's tokens to use at request time, the same
+    // way it already does for direct (unmapped) model-id requests.
+    bindingId: uuid('binding_id')
       .notNull()
-      .references(() => upstreamModels.id, { onDelete: 'cascade' }),
+      .references(() => modelBindings.id, { onDelete: 'cascade' }),
     position: integer('position').notNull(),
     enabled: boolean('enabled').default(true).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [unique('routes_mapping_model_unique').on(t.mappingId, t.upstreamModelId)],
+  (t) => [unique('routes_mapping_binding_unique').on(t.mappingId, t.bindingId)],
 );
 export const transformationRules = pgTable('transformation_rules', {
   id: uuid('id').primaryKey().defaultRandom(),

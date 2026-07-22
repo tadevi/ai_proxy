@@ -85,6 +85,13 @@
       "when": 1784640000000,
       "tag": "0011_fix_multi_token_model_uniqueness",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784645000000,
+      "tag": "0012_binding_based_routing",
+      "breakpoints": true
     }
   ]
 }

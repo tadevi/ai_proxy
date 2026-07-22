@@ -9,7 +9,12 @@ services:
     name: passthrough
     runtime: node
     plan: starter
-    buildCommand: pnpm install --frozen-lockfile && pnpm run build
+    # preDeployCommand (below) only runs on paid Render plans. On the free tier, folding
+    # the migration into buildCommand is the workaround — it still runs before the new
+    # instance is deployed/cut over, so a bad migration still blocks the deploy instead
+    # of shipping app code against a stale schema. Safe to run twice (drizzle's migrate()
+    # is idempotent) if this service is ever upgraded and preDeployCommand starts firing too.
+    buildCommand: pnpm install --frozen-lockfile && pnpm run build && pnpm db:migrate
     preDeployCommand: pnpm db:migrate
     startCommand: pnpm start
     healthCheckPath: /health

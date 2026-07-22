@@ -27,13 +27,19 @@ export type ConnectionToken = {
   connectionId: string;
   name: string;
   enabled: boolean;
+  cooldownUntil?: string | null;
+  latestError?: Record<string, unknown> | null;
+  latestErrorAt?: string | null;
   createdAt: string;
 };
 export type ModelBinding = {
   id: string;
   connectionId: string;
+  // Only present from /api/bindings (the cross-connection list) — omitted from
+  // /api/connections/:id/bindings since the connection is already implied there.
+  connectionName?: string;
   presetId: string;
-  presetName: string;
+  presetDisplayName: string;
   presetUpstreamModelId: string;
   apiFormat: string;
   providerBasePath: string;
@@ -48,6 +54,9 @@ export type Model = {
   bindingId: string | null;
   tokenId: string | null;
   tokenName: string | null;
+  // Read-only — reflects the token's own state, only Tokens (on the connection) can change it.
+  tokenEnabled: boolean | null;
+  tokenCooldownUntil?: string | null;
   apiFormat: 'openai_compatible' | 'anthropic_compatible';
   providerBasePath: string;
   requestPathOverride?: string | null;
@@ -59,10 +68,20 @@ export type Model = {
   supportsImages: string;
   supportsReasoning: string;
   latestTestStatus?: string;
-  cooldownUntil?: string | null;
   latestError?: Record<string, unknown> | null;
   latestErrorAt?: string | null;
 };
+export type MappingRoute = {
+  routeId: string;
+  bindingId: string;
+  enabled: boolean;
+  position: number;
+  presetDisplayName: string;
+  presetUpstreamModelId: string;
+  providerConnectionName: string;
+  apiFormat: string;
+};
+export type Mapping = { alias: string; routes: MappingRoute[] };
 export type Preset = {
   id: string;
   userId: string | null;

@@ -33,6 +33,15 @@ import {
 import { dashboardAuth } from '../auth.js';
 import { encryptCredential, hashSecret, randomToken, validateUpstreamUrl } from '../security.js';
 
+// Drizzle wraps pg errors in DrizzleQueryError, putting the actual pg error (with its
+// `code`) on `.cause` rather than in `.message` — `error.message` never contains "23505"
+// for a real unique-violation, so that must not be used to detect one.
+function isUniqueViolation(error: unknown): boolean {
+  const code = (error as { code?: unknown })?.code;
+  const causeCode = (error as { cause?: { code?: unknown } })?.cause?.code;
+  return code === '23505' || causeCode === '23505';
+}
+
 const safeConnection = {
   id: providerConnections.id,
   displayName: providerConnections.displayName,
@@ -49,6 +58,11 @@ const safeModel = {
   providerConnectionName: providerConnections.displayName,
   bindingId: upstreamModels.bindingId,
   tokenId: upstreamModels.tokenId,
+  tokenName: connectionTokens.name,
+  // Read-only view of the credential's own state — the Models tab shows this per
+  // instance, but only Tokens (on the connection) can actually change it.
+  tokenEnabled: connectionTokens.enabled,
+  tokenCooldownUntil: connectionTokens.cooldownUntil,
   apiFormat: upstreamModels.apiFormat,
   providerBasePath: upstreamModels.providerBasePath,
   requestPathOverride: upstreamModels.requestPathOverride,
@@ -62,7 +76,6 @@ const safeModel = {
   enabled: upstreamModels.enabled,
   latestTestStatus: upstreamModels.latestTestStatus,
   latestTestAt: upstreamModels.latestTestAt,
-  cooldownUntil: upstreamModels.cooldownUntil,
   latestError: upstreamModels.latestError,
   latestErrorAt: upstreamModels.latestErrorAt,
   createdAt: upstreamModels.createdAt,
@@ -265,6 +278,9 @@ export async function dashboardRoutes(app: FastifyInstance) {
     id: connectionTokens.id,
     name: connectionTokens.name,
     enabled: connectionTokens.enabled,
+    cooldownUntil: connectionTokens.cooldownUntil,
+    latestError: connectionTokens.latestError,
+    latestErrorAt: connectionTokens.latestErrorAt,
     createdAt: connectionTokens.createdAt,
     updatedAt: connectionTokens.updatedAt,
   };
@@ -299,7 +315,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
       await createUpstreamModelsForToken(app, req.dashboardUser!.id, connectionId, token!.id);
       return reply.code(201).send(token);
     } catch (error) {
-      if (error instanceof Error && error.message.includes('23505'))
+      if (isUniqueViolation(error))
         return reply.code(409).send({ error: 'A token with this name already exists on this connection.' });
       throw error;
     }
@@ -364,12 +380,32 @@ export async function dashboardRoutes(app: FastifyInstance) {
     id: modelBindings.id,
     presetId: modelBindings.presetId,
     presetDisplayName: modelPresets.displayName,
+    presetUpstreamModelId: modelPresets.upstreamModelId,
     connectionId: modelBindings.connectionId,
     apiFormat: modelBindings.apiFormat,
     providerBasePath: modelBindings.providerBasePath,
     createdAt: modelBindings.createdAt,
     updatedAt: modelBindings.updatedAt,
   };
+  app.get('/api/bindings', async (req) =>
+    app.db
+      .select({
+        id: modelBindings.id,
+        presetId: modelBindings.presetId,
+        presetDisplayName: modelPresets.displayName,
+        presetUpstreamModelId: modelPresets.upstreamModelId,
+        connectionId: modelBindings.connectionId,
+        connectionName: providerConnections.displayName,
+        apiFormat: modelBindings.apiFormat,
+        providerBasePath: modelBindings.providerBasePath,
+        createdAt: modelBindings.createdAt,
+      })
+      .from(modelBindings)
+      .innerJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
+      .innerJoin(providerConnections, eq(providerConnections.id, modelBindings.connectionId))
+      .where(eq(modelBindings.userId, req.dashboardUser!.id))
+      .orderBy(desc(modelBindings.createdAt)),
+  );
   app.get('/api/connections/:id/bindings', async (req, reply) => {
     const connectionId = (req.params as { id: string }).id;
     if (!(await ownsConnection(app, req.dashboardUser!.id, connectionId)))
@@ -426,7 +462,11 @@ export async function dashboardRoutes(app: FastifyInstance) {
       // presetDisplayName isn't a model_bindings column — RETURNING can't pull it from
       // the joined modelPresets table on a plain insert, so attach it from the preset
       // already looked up above instead of reusing the GET handler's joined projection.
-      const binding = { ...inserted!, presetDisplayName: preset.displayName };
+      const binding = {
+        ...inserted!,
+        presetDisplayName: preset.displayName,
+        presetUpstreamModelId: preset.upstreamModelId,
+      };
       // Auto-create upstream_models for all enabled tokens on this connection
       await createUpstreamModelsForBinding(
         app,
@@ -439,7 +479,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
       );
       return reply.code(201).send(binding);
     } catch (error) {
-      if (error instanceof Error && error.message.includes('23505'))
+      if (isUniqueViolation(error))
         return reply.code(409).send({ error: 'This preset is already bound to this connection with the same API format.' });
       throw error;
     }
@@ -502,7 +542,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
         .returning({ id: upstreamModels.id });
       return reply.code(201).send((await getModel(app, req.dashboardUser!.id, created!.id))!);
     } catch (error) {
-      if (error instanceof Error && error.message.includes('23505'))
+      if (isUniqueViolation(error))
         return reply.code(409).send({ error: 'This upstream model ID already exists on this connection.' });
       throw error;
     }
@@ -585,21 +625,19 @@ export async function dashboardRoutes(app: FastifyInstance) {
         mappingId: mappings.id,
         alias: mappings.alias,
         routeId: mappingRoutes.id,
-        modelId: upstreamModels.id,
+        bindingId: modelBindings.id,
         enabled: mappingRoutes.enabled,
         position: mappingRoutes.position,
-        displayName: upstreamModels.displayName,
+        presetDisplayName: modelPresets.displayName,
+        presetUpstreamModelId: modelPresets.upstreamModelId,
         providerConnectionName: providerConnections.displayName,
-        upstreamModelId: upstreamModels.upstreamModelId,
-        latestTestStatus: upstreamModels.latestTestStatus,
+        apiFormat: modelBindings.apiFormat,
       })
       .from(mappings)
       .leftJoin(mappingRoutes, eq(mappingRoutes.mappingId, mappings.id))
-      .leftJoin(upstreamModels, eq(upstreamModels.id, mappingRoutes.upstreamModelId))
-      .leftJoin(
-        providerConnections,
-        eq(providerConnections.id, upstreamModels.providerConnectionId),
-      )
+      .leftJoin(modelBindings, eq(modelBindings.id, mappingRoutes.bindingId))
+      .leftJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
+      .leftJoin(providerConnections, eq(providerConnections.id, modelBindings.connectionId))
       .where(eq(mappings.userId, req.dashboardUser!.id))
       .orderBy(asc(mappingRoutes.position));
     return aliases.map((alias) => ({
@@ -612,24 +650,24 @@ export async function dashboardRoutes(app: FastifyInstance) {
     if (!aliases.includes(alias as (typeof aliases)[number]))
       return reply.code(404).send({ error: 'Unknown alias' });
     const input = mappingUpdateSchema.parse(req.body);
-    if (new Set(input.routes.map((r) => r.modelId)).size !== input.routes.length)
-      return reply.code(400).send({ error: 'Duplicate model in mapping' });
+    if (new Set(input.routes.map((r) => r.bindingId)).size !== input.routes.length)
+      return reply.code(400).send({ error: 'Duplicate binding in mapping' });
     const owned = input.routes.length
       ? await app.db
-          .select({ id: upstreamModels.id })
-          .from(upstreamModels)
+          .select({ id: modelBindings.id })
+          .from(modelBindings)
           .where(
             and(
-              eq(upstreamModels.userId, req.dashboardUser!.id),
+              eq(modelBindings.userId, req.dashboardUser!.id),
               inArray(
-                upstreamModels.id,
-                input.routes.map((r) => r.modelId),
+                modelBindings.id,
+                input.routes.map((r) => r.bindingId),
               ),
             ),
           )
       : [];
     if (owned.length !== input.routes.length)
-      return reply.code(403).send({ error: 'One or more models are not owned by this account' });
+      return reply.code(403).send({ error: 'One or more bindings are not owned by this account' });
     const mapping = await ensureMapping(app, req.dashboardUser!.id, alias);
     await app.db.transaction(async (tx) => {
       await tx.delete(mappingRoutes).where(eq(mappingRoutes.mappingId, mapping.id));
@@ -637,7 +675,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
         await tx.insert(mappingRoutes).values(
           input.routes.map((r, position) => ({
             mappingId: mapping.id,
-            upstreamModelId: r.modelId,
+            bindingId: r.bindingId,
             enabled: r.enabled,
             position,
           })),
@@ -813,6 +851,7 @@ function listModels(app: FastifyInstance, userId: string) {
     .select(safeModel)
     .from(upstreamModels)
     .innerJoin(providerConnections, eq(providerConnections.id, upstreamModels.providerConnectionId))
+    .leftJoin(connectionTokens, eq(connectionTokens.id, upstreamModels.tokenId))
     .where(eq(upstreamModels.userId, userId))
     .orderBy(desc(upstreamModels.createdAt));
 }
@@ -821,6 +860,7 @@ async function getModel(app: FastifyInstance, userId: string, id: string) {
     .select(safeModel)
     .from(upstreamModels)
     .innerJoin(providerConnections, eq(providerConnections.id, upstreamModels.providerConnectionId))
+    .leftJoin(connectionTokens, eq(connectionTokens.id, upstreamModels.tokenId))
     .where(and(eq(upstreamModels.id, id), eq(upstreamModels.userId, userId)))
     .limit(1);
   return model;
@@ -876,7 +916,7 @@ async function createUpstreamModelsForToken(
         maxOutputTokens: preset.maxOutputTokens,
       });
     } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes('23505')) throw error;
+      if (!isUniqueViolation(error)) throw error;
       // Unique constraint violation — model already exists, skip
     }
   }
@@ -927,7 +967,7 @@ async function createUpstreamModelsForBinding(
         maxOutputTokens: preset.maxOutputTokens,
       });
     } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes('23505')) throw error;
+      if (!isUniqueViolation(error)) throw error;
       // Unique constraint violation — model already exists, skip
     }
   }

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import { Auth } from './pages/Auth';
 import { Connections } from './pages/Connections';
+import { Models } from './pages/Models';
 import { Presets } from './pages/Presets';
 import { Mappings } from './pages/Mappings';
 import { Logs } from './pages/Logs';
@@ -10,6 +11,7 @@ import { Setup } from './pages/Setup';
 import { Account } from './pages/Account';
 const pages = [
   { name: 'Connections', path: '/connections' },
+  { name: 'Models', path: '/models' },
   { name: 'Presets', path: '/presets' },
   { name: 'Mappings', path: '/mappings' },
   { name: 'Logs', path: '/logs' },
@@ -70,6 +72,8 @@ export function App() {
       <main className="mx-auto max-w-7xl p-4 sm:p-8">
         {page === 'Connections' ? (
           <Connections />
+        ) : page === 'Models' ? (
+          <Models />
         ) : page === 'Presets' ? (
           <Presets />
         ) : page === 'Mappings' ? (

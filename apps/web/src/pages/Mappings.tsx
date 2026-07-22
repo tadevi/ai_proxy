@@ -8,21 +8,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type Model } from '../api';
-
-type Route = {
-  routeId: string;
-  modelId: string;
-  enabled: boolean;
-  position: number;
-  displayName: string;
-  providerConnectionName: string;
-  tokenName: string | null;
-  upstreamModelId: string;
-  latestTestStatus?: string;
-};
-
-type Mapping = { alias: string; routes: Route[] };
+import { api, type Mapping, type MappingRoute, type ModelBinding } from '../api';
 
 export function Mappings() {
   const qc = useQueryClient();
@@ -30,18 +16,21 @@ export function Mappings() {
     queryKey: ['mappings'],
     queryFn: () => api<Mapping[]>('/api/mappings'),
   });
-  const models = useQuery({ queryKey: ['models'], queryFn: () => api<Model[]>('/api/models') });
+  const bindings = useQuery({
+    queryKey: ['bindings'],
+    queryFn: () => api<ModelBinding[]>('/api/bindings'),
+  });
   const save = useMutation({
-    mutationFn: ({ alias, routes }: { alias: string; routes: Route[] }) =>
+    mutationFn: ({ alias, routes }: { alias: string; routes: MappingRoute[] }) =>
       api(`/api/mappings/${alias}`, {
         method: 'PUT',
         body: JSON.stringify({
-          routes: routes.map((r) => ({ modelId: r.modelId, enabled: r.enabled })),
+          routes: routes.map((r) => ({ bindingId: r.bindingId, enabled: r.enabled })),
         }),
       }),
     onSettled: () => qc.invalidateQueries({ queryKey: ['mappings'] }),
   });
-  function update(alias: string, routes: Route[]) {
+  function update(alias: string, routes: MappingRoute[]) {
     qc.setQueryData<Mapping[]>(['mappings'], (old) =>
       old?.map((m) => (m.alias === alias ? { ...m, routes } : m)),
     );
@@ -52,7 +41,8 @@ export function Mappings() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold">Mappings</h1>
         <p className="muted mt-1">
-          Models are attempted from top to bottom. Changes save immediately.
+          Bindings are attempted from top to bottom; the gateway picks which token to use
+          within each. Changes save immediately.
         </p>
         {save.error && <p className="mt-2 text-sm text-red-400">Could not save: {save.error.message}</p>}
       </div>
@@ -61,7 +51,7 @@ export function Mappings() {
           <MappingCard
             key={m.alias}
             mapping={m}
-            models={models.data ?? []}
+            bindings={bindings.data ?? []}
             update={(r) => update(m.alias, r)}
           />
         ))}
@@ -72,35 +62,34 @@ export function Mappings() {
 
 function MappingCard({
   mapping,
-  models,
+  bindings,
   update,
 }: {
   mapping: Mapping;
-  models: Model[];
-  update: (r: Route[]) => void;
+  bindings: ModelBinding[];
+  update: (r: MappingRoute[]) => void;
 }) {
   const [choice, setChoice] = useState('');
   function drag(e: DragEndEvent) {
     if (!e.over || e.active.id === e.over.id) return;
-    const from = mapping.routes.findIndex((r) => r.modelId === e.active.id),
-      to = mapping.routes.findIndex((r) => r.modelId === e.over!.id);
+    const from = mapping.routes.findIndex((r) => r.bindingId === e.active.id),
+      to = mapping.routes.findIndex((r) => r.bindingId === e.over!.id);
     update(arrayMove(mapping.routes, from, to));
   }
   function add() {
-    const m = models.find((x) => x.id === choice);
-    if (!m || mapping.routes.some((r) => r.modelId === m.id)) return;
+    const b = bindings.find((x) => x.id === choice);
+    if (!b || mapping.routes.some((r) => r.bindingId === b.id)) return;
     update([
       ...mapping.routes,
       {
-        routeId: 'new-' + m.id,
-        modelId: m.id,
+        routeId: 'new-' + b.id,
+        bindingId: b.id,
         enabled: true,
         position: mapping.routes.length,
-        displayName: m.displayName,
-        providerConnectionName: m.providerConnectionName,
-        tokenName: m.tokenName,
-        upstreamModelId: m.upstreamModelId,
-        latestTestStatus: m.latestTestStatus,
+        presetDisplayName: b.presetDisplayName,
+        presetUpstreamModelId: b.presetUpstreamModelId,
+        providerConnectionName: b.connectionName ?? '',
+        apiFormat: b.apiFormat,
       },
     ]);
     setChoice('');
@@ -111,23 +100,23 @@ function MappingCard({
       <p className="muted mb-4">Priority fallback</p>
       <DndContext collisionDetection={closestCenter} onDragEnd={drag}>
         <SortableContext
-          items={mapping.routes.map((r) => r.modelId)}
+          items={mapping.routes.map((r) => r.bindingId)}
           strategy={verticalListSortingStrategy}
         >
           <div className="space-y-2">
             {mapping.routes.map((r, i) => (
               <SortableRoute
-                key={r.modelId}
+                key={r.bindingId}
                 route={r}
                 index={i}
                 toggle={() =>
                   update(
                     mapping.routes.map((x) =>
-                      x.modelId === r.modelId ? { ...x, enabled: !x.enabled } : x,
+                      x.bindingId === r.bindingId ? { ...x, enabled: !x.enabled } : x,
                     ),
                   )
                 }
-                remove={() => update(mapping.routes.filter((x) => x.modelId !== r.modelId))}
+                remove={() => update(mapping.routes.filter((x) => x.bindingId !== r.bindingId))}
               />
             ))}
           </div>
@@ -135,17 +124,17 @@ function MappingCard({
       </DndContext>
       <div className="mt-4 flex gap-2">
         <select
-          aria-label={`Add model to ${mapping.alias}`}
+          aria-label={`Add binding to ${mapping.alias}`}
           className="input min-w-0"
           value={choice}
           onChange={(e) => setChoice(e.target.value)}
         >
-          <option value="">Add model…</option>
-          {models
-            .filter((m) => !mapping.routes.some((r) => r.modelId === m.id))
-            .map((m) => (
-              <option value={m.id} key={m.id}>
-                {m.displayName}
+          <option value="">Add binding…</option>
+          {bindings
+            .filter((b) => !mapping.routes.some((r) => r.bindingId === b.id))
+            .map((b) => (
+              <option value={b.id} key={b.id}>
+                {b.presetDisplayName} · {b.connectionName}
               </option>
             ))}
         </select>
@@ -163,13 +152,13 @@ function SortableRoute({
   toggle,
   remove,
 }: {
-  route: Route;
+  route: MappingRoute;
   index: number;
   toggle: () => void;
   remove: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
-    id: route.modelId,
+    id: route.bindingId,
   });
   return (
     <div
@@ -187,10 +176,10 @@ function SortableRoute({
           ⠿
         </button>
         <span className="text-sm text-zinc-500">{index + 1}</span>
-        <span className="min-w-0 flex-1 truncate text-sm">{route.displayName}</span>
+        <span className="min-w-0 flex-1 truncate text-sm">{route.presetDisplayName}</span>
         <button
           aria-checked={route.enabled}
-          aria-label={`${route.enabled ? 'Disable' : 'Enable'} ${route.displayName}`}
+          aria-label={`${route.enabled ? 'Disable' : 'Enable'} ${route.presetDisplayName}`}
           className={`relative h-5 w-9 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 ${route.enabled ? 'bg-emerald-500/80' : 'bg-zinc-700'}`}
           onClick={toggle}
           role="switch"
@@ -202,7 +191,7 @@ function SortableRoute({
           />
         </button>
         <button
-          aria-label={`Remove ${route.displayName} from this mapping`}
+          aria-label={`Remove ${route.presetDisplayName} from this mapping`}
           className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-800 hover:text-red-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
           onClick={remove}
           title="Remove from mapping"
@@ -221,7 +210,9 @@ function SortableRoute({
       </div>
       <p className="mt-1 truncate pl-10 text-xs text-zinc-500">
         {route.providerConnectionName}
-        {route.tokenName && <> · {route.tokenName}</>}
+        {route.presetUpstreamModelId && <> · {route.presetUpstreamModelId}</>}
+        {' · '}
+        {route.apiFormat === 'anthropic_compatible' ? 'Anthropic' : 'OpenAI'}
       </p>
     </div>
   );

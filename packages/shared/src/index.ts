@@ -83,7 +83,7 @@ export const gatewayKeyInputSchema = z.object({ name: z.string().trim().min(1).m
 
 // ── Mapping ─────────────────────────────────────────────────
 export const mappingUpdateSchema = z.object({
-  routes: z.array(z.object({ modelId: z.string().uuid(), enabled: z.boolean() })).max(100),
+  routes: z.array(z.object({ bindingId: z.string().uuid(), enabled: z.boolean() })).max(100),
 });
 
 // ── Rules ───────────────────────────────────────────────────
