@@ -72,10 +72,10 @@ export function Models() {
             bindings/tokens.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
           <select
             aria-label="Filter by connection"
-            className="input"
+            className="input w-44 shrink-0"
             value={filterConnection}
             onChange={(e) => setFilterConnection(e.target.value)}
           >
@@ -86,7 +86,7 @@ export function Models() {
               </option>
             ))}
           </select>
-          <div className="flex overflow-hidden rounded-lg border border-zinc-800">
+          <div className="flex shrink-0 overflow-hidden rounded-lg border border-zinc-800">
             <button
               className={`px-3 py-2 text-sm ${viewMode === 'detail' ? 'bg-zinc-800' : 'text-zinc-400 hover:text-white'}`}
               onClick={() => setViewMode('detail')}
