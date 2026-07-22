@@ -1,16 +1,22 @@
 import type { AnthropicRequest, NormalizedThinking } from './types.js';
 
 type Json = Record<string, unknown>;
-export function normalizeThinking(raw: unknown): NormalizedThinking {
+export function normalizeThinking(raw: unknown, outputConfig?: unknown): NormalizedThinking {
   if (!raw || typeof raw !== 'object') return { enabled: false };
   const v = raw as Json;
   if (v.type === 'disabled' || v.enabled === false) return { enabled: false };
-  const effort = ['low', 'medium', 'high', 'xhigh'].includes(String(v.effort))
-    ? (v.effort as NormalizedThinking['effort'])
+  const oc = outputConfig && typeof outputConfig === 'object' ? (outputConfig as Json) : undefined;
+  const rawEffort = oc?.effort ?? v.effort;
+  const effort = ['low', 'medium', 'high', 'xhigh', 'max'].includes(String(rawEffort))
+    ? (rawEffort as NormalizedThinking['effort'])
     : undefined;
   const budgetTokens = typeof v.budget_tokens === 'number' ? v.budget_tokens : undefined;
   return {
-    enabled: v.type === 'enabled' || v.enabled === true || Boolean(effort || budgetTokens),
+    enabled:
+      v.type === 'enabled' ||
+      v.type === 'adaptive' ||
+      v.enabled === true ||
+      Boolean(effort || budgetTokens),
     ...(effort ? { effort } : {}),
     ...(budgetTokens ? { budgetTokens } : {}),
   };

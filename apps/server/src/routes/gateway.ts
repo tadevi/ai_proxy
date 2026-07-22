@@ -705,7 +705,11 @@ async function callModel(
     let headers: Record<string, string>;
     if (model.apiFormat === 'openai_compatible') {
       body = anthropicToOpenAI(requestForModel, model.upstreamModelId);
-      body = applyRules(body, rules, normalizeThinking(requestForModel.thinking));
+      body = applyRules(
+        body,
+        rules,
+        normalizeThinking(requestForModel.thinking, requestForModel.output_config),
+      );
       if (requestForModel.stream) body.stream_options = { include_usage: true };
       headers = {
         authorization: `Bearer ${key}`,

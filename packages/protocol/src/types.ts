@@ -66,13 +66,14 @@ export const anthropicRequestSchema = z
     max_tokens: z.number().int().positive().max(1_000_000),
     stream: z.boolean().default(false),
     thinking: z.record(z.unknown()).optional(),
+    output_config: z.object({ effort: z.string().optional() }).passthrough().optional(),
   })
   .passthrough();
 
 export type AnthropicRequest = z.infer<typeof anthropicRequestSchema>;
 export type NormalizedThinking = {
   enabled: boolean;
-  effort?: 'low' | 'medium' | 'high' | 'xhigh';
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   budgetTokens?: number;
 };
 export type Rule = {

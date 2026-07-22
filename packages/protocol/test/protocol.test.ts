@@ -112,6 +112,24 @@ describe('thinking and declarative rules', () => {
     });
   });
 
+  it('treats adaptive thinking as enabled', () => {
+    expect(normalizeThinking({ type: 'adaptive' })).toEqual({ enabled: true });
+  });
+
+  it('reads effort from output_config for adaptive thinking', () => {
+    expect(normalizeThinking({ type: 'adaptive' }, { effort: 'xhigh' })).toEqual({
+      enabled: true,
+      effort: 'xhigh',
+    });
+  });
+
+  it('prefers output_config effort over a thinking-block effort', () => {
+    expect(normalizeThinking({ type: 'enabled', effort: 'low' }, { effort: 'max' })).toEqual({
+      enabled: true,
+      effort: 'max',
+    });
+  });
+
   it('maps thinking effort', () => {
     const output = applyRules(
       {},

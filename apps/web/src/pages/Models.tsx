@@ -113,7 +113,7 @@ export function Models() {
                   <ModelCard
                     key={m.id}
                     model={m}
-                    usage={usageByModel.get(m.upstreamModelId)}
+                    usage={usageByModel.get(m.id)}
                     testing={testingId === m.id}
                     onTest={() => testModel.mutate(m.id)}
                     onToggle={() => toggleModel.mutate({ id: m.id, enabled: !m.enabled })}
@@ -146,7 +146,7 @@ export function Models() {
             </thead>
             <tbody>
               {filtered.map((m) => {
-                const u = usageByModel.get(m.upstreamModelId);
+                const u = usageByModel.get(m.id);
                 return (
                   <tr
                     className={`border-b border-zinc-800/60 last:border-b-0 ${!m.enabled ? 'opacity-60' : ''}`}
