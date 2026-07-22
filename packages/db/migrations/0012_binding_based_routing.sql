@@ -42,7 +42,10 @@ WHERE mr.mapping_id = mr2.mapping_id
 
 ALTER TABLE "mapping_routes" ALTER COLUMN "binding_id" SET NOT NULL;
 ALTER TABLE "mapping_routes" ADD CONSTRAINT "mapping_routes_binding_id_model_bindings_id_fk" FOREIGN KEY ("binding_id") REFERENCES "model_bindings"("id") ON DELETE cascade;
-DROP INDEX IF EXISTS "routes_mapping_model_unique";
+-- routes_mapping_model_unique is a table constraint (created via drizzle's unique()),
+-- not a standalone index — its backing index can only be dropped by dropping the
+-- constraint itself, not via DROP INDEX.
+ALTER TABLE "mapping_routes" DROP CONSTRAINT IF EXISTS "routes_mapping_model_unique";
 ALTER TABLE "mapping_routes" DROP CONSTRAINT IF EXISTS "mapping_routes_upstream_model_id_upstream_models_id_fk";
 ALTER TABLE "mapping_routes" DROP COLUMN "upstream_model_id";
 CREATE UNIQUE INDEX "routes_mapping_binding_unique" ON "mapping_routes" ("mapping_id", "binding_id");
