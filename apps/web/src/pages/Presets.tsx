@@ -17,7 +17,7 @@ const defaults: Form = {
   upstreamModelId: '',
   apiFormat: 'openai_compatible',
   supportsImages: 'no',
-  supportsReasoning: 'no',
+  supportsReasoning: 'yes',
   maxOutputTokens: '',
 };
 
@@ -62,7 +62,7 @@ export function Presets() {
         </button>
       </div>
       {showForm && (
-        <PresetForm
+        <PresetFormModal
           error={save.error?.message}
           onCancel={() => setShowForm(false)}
           onSave={(v) => save.mutate(v)}
@@ -129,7 +129,7 @@ export function Presets() {
   );
 }
 
-function PresetForm({
+function PresetFormModal({
   onSave,
   onCancel,
   error,
@@ -141,60 +141,67 @@ function PresetForm({
   const { register, handleSubmit, watch } = useForm<Form>({ defaultValues: defaults });
   const apiFormat = watch('apiFormat');
   return (
-    <form
-      className="card mb-6 grid gap-4 md:grid-cols-2"
-      onSubmit={handleSubmit(onSave)}
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+      role="presentation"
     >
-      <h2 className="text-lg font-medium md:col-span-2">Add custom preset</h2>
-      <label>
-        <span className="label">Display name</span>
-        <input className="input" {...register('displayName', { required: true })} />
-      </label>
-      <label>
-        <span className="label">Upstream model ID</span>
-        <input className="input" {...register('upstreamModelId', { required: true })} />
-      </label>
-      <label>
-        <span className="label">API format</span>
-        <select className="input" {...register('apiFormat')}>
-          <option value="openai_compatible">OpenAI compatible</option>
-          <option value="anthropic_compatible">Anthropic compatible</option>
-        </select>
-      </label>
-      <label>
-        <span className="label">Max output tokens</span>
-        <input
-          className="input"
-          min="1"
-          placeholder="Leave blank for default"
-          type="number"
-          {...register('maxOutputTokens')}
-        />
-      </label>
-      <section className="md:col-span-2">
-        <h3 className="mb-3 text-sm font-medium text-zinc-200">Capabilities</h3>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {(apiFormat === 'openai_compatible'
-            ? (['supportsImages', 'supportsReasoning'] as const)
-            : (['supportsImages'] as const)
-          ).map((name) => (
-            <label key={name}>
-              <span className="label">{name.replace('supports', 'Supports ')}</span>
-              <select className="input" {...register(name)}>
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
-              </select>
-            </label>
-          ))}
-        </div>
+      <section className="card w-full max-w-2xl" role="dialog" aria-modal="true">
+        <h2 className="text-lg font-medium">Add custom preset</h2>
+        <form className="mt-4 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit(onSave)}>
+          <label>
+            <span className="label">Display name</span>
+            <input className="input" {...register('displayName', { required: true })} />
+          </label>
+          <label>
+            <span className="label">Upstream model ID</span>
+            <input className="input" {...register('upstreamModelId', { required: true })} />
+          </label>
+          <label>
+            <span className="label">API format</span>
+            <select className="input" {...register('apiFormat')}>
+              <option value="openai_compatible">OpenAI compatible</option>
+              <option value="anthropic_compatible">Anthropic compatible</option>
+            </select>
+          </label>
+          <label>
+            <span className="label">Max output tokens</span>
+            <input
+              className="input"
+              min="1"
+              placeholder="Leave blank for default"
+              type="number"
+              {...register('maxOutputTokens')}
+            />
+          </label>
+          <section className="md:col-span-2">
+            <h3 className="mb-3 text-sm font-medium text-zinc-200">Capabilities</h3>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {(apiFormat === 'openai_compatible'
+                ? (['supportsImages', 'supportsReasoning'] as const)
+                : (['supportsImages'] as const)
+              ).map((name) => (
+                <label key={name}>
+                  <span className="label">{name.replace('supports', 'Supports ')}</span>
+                  <select className="input" {...register(name)}>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </label>
+              ))}
+            </div>
+          </section>
+          {error && <p className="text-red-400 md:col-span-2">{error}</p>}
+          <div className="flex gap-2 md:col-span-2">
+            <button className="btn btn-primary">Save preset</button>
+            <button type="button" className="btn" onClick={onCancel}>
+              Cancel
+            </button>
+          </div>
+        </form>
       </section>
-      {error && <p className="text-red-400 md:col-span-2">{error}</p>}
-      <div className="flex gap-2 md:col-span-2">
-        <button className="btn btn-primary">Save preset</button>
-        <button type="button" className="btn" onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
-    </form>
+    </div>
   );
 }

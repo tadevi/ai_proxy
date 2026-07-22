@@ -315,7 +315,14 @@ export function Connections() {
                               />
                             </button>
                             <div className="min-w-0 flex-1">
-                              <span className="block truncate text-sm">{token.name}</span>
+                              <span className="flex items-baseline gap-2 truncate text-sm">
+                                {token.name}
+                                {token.keyPreview && (
+                                  <span className="truncate font-mono text-xs text-zinc-500">
+                                    {token.keyPreview}
+                                  </span>
+                                )}
+                              </span>
                               {token.enabled && cooling && (
                                 <span className="block truncate text-xs text-amber-400">
                                   Cooling down until {new Date(token.cooldownUntil!).toLocaleTimeString()}
@@ -357,22 +364,29 @@ export function Connections() {
                     <summary className="flex cursor-pointer items-center justify-between text-sm font-medium text-zinc-300 hover:text-white">
                       <span>Model bindings ({bindings.data?.length ?? 0})</span>
                     </summary>
-                    <div className="mt-2 rounded-lg border border-zinc-800 bg-zinc-950">
+                    <div className="mt-2 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950">
                       {bindings.data?.map((binding) => (
                         <div
                           className="flex items-center gap-3 border-b border-zinc-800/60 px-4 py-2.5 last:border-b-0"
                           key={binding.id}
                         >
-                          <div className="min-w-0 flex-1">
-                            <span className="text-sm">{binding.presetDisplayName}</span>
-                            <span className="ml-2 text-xs text-zinc-500">
-                              {binding.presetUpstreamModelId} ·{' '}
-                              {binding.apiFormat === 'anthropic_compatible' ? 'Anthropic' : 'OpenAI'}
-                              {binding.providerBasePath && ` · ${binding.providerBasePath}`}
-                            </span>
-                          </div>
+                          <span className="w-32 shrink-0 truncate text-sm" title={binding.presetDisplayName}>
+                            {binding.presetDisplayName}
+                          </span>
+                          <span
+                            className="w-36 shrink-0 truncate font-mono text-xs text-zinc-500"
+                            title={binding.presetUpstreamModelId}
+                          >
+                            {binding.presetUpstreamModelId}
+                          </span>
+                          <span className="w-16 shrink-0 text-xs text-zinc-500">
+                            {binding.apiFormat === 'anthropic_compatible' ? 'Anthropic' : 'OpenAI'}
+                          </span>
+                          <span className="w-24 shrink-0 truncate font-mono text-xs text-zinc-500">
+                            {binding.providerBasePath || '—'}
+                          </span>
                           <button
-                            className="btn btn-danger h-7 px-2.5 text-xs"
+                            className="btn btn-danger ml-auto h-7 shrink-0 px-2.5 text-xs"
                             onClick={() =>
                               confirm(`Unbind "${binding.presetDisplayName}" from this connection? This will remove all associated model instances.`) &&
                               deleteBinding.mutate({ connectionId: connection.id, bindingId: binding.id })

@@ -26,6 +26,7 @@ export type ConnectionToken = {
   id: string;
   connectionId: string;
   name: string;
+  keyPreview?: string | null;
   enabled: boolean;
   cooldownUntil?: string | null;
   latestError?: Record<string, unknown> | null;

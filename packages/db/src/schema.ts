@@ -84,6 +84,7 @@ export const connectionTokens = pgTable(
       .notNull()
       .references(() => providerConnections.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    keyPreview: text('key_preview'),
     encryptedApiKey: text('encrypted_api_key').notNull(),
     encryptionIv: text('encryption_iv').notNull(),
     encryptionAuthTag: text('encryption_auth_tag').notNull(),

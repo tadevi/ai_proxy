@@ -42,6 +42,10 @@ export function decryptCredential(
     decipher.final(),
   ]).toString('utf8');
 }
+export function maskApiKey(value: string) {
+  if (value.length <= 8) return '•'.repeat(value.length);
+  return `${value.slice(0, 3)}…${value.slice(-3)}`;
+}
 export function safeEqual(a: string, b: string) {
   const x = Buffer.from(a);
   const y = Buffer.from(b);

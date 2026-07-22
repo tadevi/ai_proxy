@@ -31,7 +31,13 @@ import {
   ruleInputSchema,
 } from '@gateway/shared';
 import { dashboardAuth } from '../auth.js';
-import { encryptCredential, hashSecret, randomToken, validateUpstreamUrl } from '../security.js';
+import {
+  encryptCredential,
+  hashSecret,
+  maskApiKey,
+  randomToken,
+  validateUpstreamUrl,
+} from '../security.js';
 
 // Drizzle wraps pg errors in DrizzleQueryError, putting the actual pg error (with its
 // `code`) on `.cause` rather than in `.message` — `error.message` never contains "23505"
@@ -277,6 +283,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
   const safeToken = {
     id: connectionTokens.id,
     name: connectionTokens.name,
+    keyPreview: connectionTokens.keyPreview,
     enabled: connectionTokens.enabled,
     cooldownUntil: connectionTokens.cooldownUntil,
     latestError: connectionTokens.latestError,
@@ -300,6 +307,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'Provider connection not found' });
     const input = connectionTokenInputSchema.parse(req.body);
     const encrypted = encryptCredential(input.apiKey, app.config.CREDENTIAL_ENCRYPTION_KEY);
+    const keyPreview = maskApiKey(input.apiKey);
     const { apiKey: _, ...rest } = input;
     try {
       const [token] = await app.db
@@ -308,6 +316,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
           ...rest,
           userId: req.dashboardUser!.id,
           connectionId,
+          keyPreview,
           ...encrypted,
         })
         .returning(safeToken);
@@ -329,12 +338,14 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const encrypted = input.apiKey
       ? encryptCredential(input.apiKey, app.config.CREDENTIAL_ENCRYPTION_KEY)
       : {};
+    const keyPreview = input.apiKey ? { keyPreview: maskApiKey(input.apiKey) } : {};
     const { apiKey: _, ...rest } = input;
     const [token] = await app.db
       .update(connectionTokens)
       .set({
         ...rest,
         ...encrypted,
+        ...keyPreview,
         updatedAt: new Date(),
       })
       .where(
