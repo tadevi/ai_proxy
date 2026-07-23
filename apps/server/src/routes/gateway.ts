@@ -260,6 +260,97 @@ export async function gatewayRoutes(app: FastifyInstance) {
       return reply.code(502).send({ ok: false, message });
     }
   });
+
+  // Ad-hoc prompt runner for the dashboard Playground tab — reuses the same resolve/callModel
+  // path as the Test button, but with a user-supplied prompt and no health-tracking side
+  // effects (latestTestStatus stays whatever the last real Test/live-traffic outcome was).
+  app.post('/api/playground/complete', async (req, reply) => {
+    const userId = req.dashboardUser!.id;
+    const body = req.body as {
+      modelId?: string;
+      prompt?: string;
+      maxTokens?: number;
+      imageBase64?: string;
+      imageMediaType?: string;
+      includeTestTool?: boolean;
+    };
+    const modelId = typeof body.modelId === 'string' ? body.modelId : '';
+    const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
+    const maxTokens =
+      typeof body.maxTokens === 'number' && body.maxTokens > 0 ? Math.floor(body.maxTokens) : 1024;
+    if (!modelId || !prompt)
+      return reply.code(400).send({ error: 'modelId and prompt are required' });
+
+    const [row] = await app.db
+      .select({ model: upstreamModels, connection: providerConnections })
+      .from(upstreamModels)
+      .innerJoin(
+        providerConnections,
+        eq(providerConnections.id, upstreamModels.providerConnectionId),
+      )
+      .where(and(eq(upstreamModels.id, modelId), eq(upstreamModels.userId, userId)))
+      .limit(1);
+    if (!row) return reply.code(404).send({ error: 'Model not found' });
+
+    let token: ConnectionToken | null = null;
+    if (row.model.tokenId) {
+      const [t] = await app.db
+        .select()
+        .from(connectionTokens)
+        .where(and(eq(connectionTokens.id, row.model.tokenId), eq(connectionTokens.enabled, true)))
+        .limit(1);
+      token = t ?? null;
+    }
+    const ruleRows = await app.db
+      .select()
+      .from(transformationRules)
+      .where(eq(transformationRules.upstreamModelId, row.model.id))
+      .orderBy(asc(transformationRules.position));
+    const rules = ruleRows.map(toRule);
+    const content: Array<Record<string, unknown>> = [];
+    if (body.imageBase64 && body.imageMediaType) {
+      content.push({
+        type: 'image',
+        source: { type: 'base64', media_type: body.imageMediaType, data: body.imageBase64 },
+      });
+    }
+    content.push({ type: 'text', text: prompt });
+    const request = {
+      model: row.model.upstreamModelId,
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content }],
+      stream: false,
+      ...(body.includeTestTool
+        ? {
+            tools: [
+              {
+                name: 'web_search',
+                description: 'Search the web for up-to-date information on a topic.',
+                input_schema: {
+                  type: 'object',
+                  properties: { query: { type: 'string', description: 'The search query' } },
+                  required: ['query'],
+                },
+              },
+            ],
+          }
+        : {}),
+    } as unknown as AnthropicRequest;
+    try {
+      const result = await callModel(
+        app,
+        { ...row, token, rules },
+        request,
+        row.model.upstreamModelId,
+        requestSignal(req.raw),
+      );
+      return { ok: true, response: result.body };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Playground request failed';
+      const providerError = error instanceof UpstreamFailure ? error.providerError : undefined;
+      return reply.code(502).send({ ok: false, message, providerError });
+    }
+  });
 }
 
 async function attachTokens(

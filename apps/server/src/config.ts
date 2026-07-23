@@ -17,6 +17,8 @@ const schema = z.object({
     .transform((v) => v === 'true'),
   UPSTREAM_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300000).default(60000),
   LOG_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(7),
+  CLIPROXY_BASE_URL: z.string().url().optional(),
+  CLIPROXY_MANAGEMENT_KEY: z.string().min(1).optional(),
 });
 export type Config = z.infer<typeof schema>;
 let loadedEnvDirectory: string | undefined;

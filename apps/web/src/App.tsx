@@ -6,6 +6,7 @@ import { Connections } from './pages/Connections';
 import { Models } from './pages/Models';
 import { Presets } from './pages/Presets';
 import { Mappings } from './pages/Mappings';
+import { Playground } from './pages/Playground';
 import { Logs } from './pages/Logs';
 import { Setup } from './pages/Setup';
 import { Account } from './pages/Account';
@@ -14,6 +15,7 @@ const pages = [
   { name: 'Models', path: '/models' },
   { name: 'Presets', path: '/presets' },
   { name: 'Mappings', path: '/mappings' },
+  { name: 'Playground', path: '/playground' },
   { name: 'Logs', path: '/logs' },
   { name: 'Setup', path: '/setup' },
   { name: 'Account', path: '/account' },
@@ -78,6 +80,8 @@ export function App() {
           <Presets />
         ) : page === 'Mappings' ? (
           <Mappings />
+        ) : page === 'Playground' ? (
+          <Playground />
         ) : page === 'Logs' ? (
           <Logs />
         ) : page === 'Setup' ? (

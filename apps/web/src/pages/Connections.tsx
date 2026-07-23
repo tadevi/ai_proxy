@@ -26,18 +26,6 @@ const tokenDefaults: TokenForm = {
   apiKey: '',
 };
 
-type BindingForm = {
-  presetId: string;
-  apiFormat: string;
-  providerBasePath: string;
-};
-
-const bindingDefaults: BindingForm = {
-  presetId: '',
-  apiFormat: 'openai_compatible',
-  providerBasePath: '',
-};
-
 export function Connections() {
   const qc = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -142,28 +130,40 @@ export function Connections() {
     },
   });
 
-  const addBinding = useMutation({
-    mutationFn: ({
+  const addBindings = useMutation({
+    mutationFn: async ({
       connectionId,
-      presetId,
+      presetIds,
       apiFormat,
       providerBasePath,
     }: {
       connectionId: string;
-      presetId: string;
+      presetIds: string[];
       apiFormat?: string;
       providerBasePath?: string;
-    }) =>
-      api(`/api/connections/${connectionId}/bindings`, {
+    }) => {
+      const result = await api<{
+        bound: unknown[];
+        failed: { presetId: string; error: string }[];
+      }>(`/api/connections/${connectionId}/bindings`, {
         method: 'POST',
         body: JSON.stringify({
-          presetId,
+          presetIds,
           ...(apiFormat ? { apiFormat } : {}),
           ...(providerBasePath ? { providerBasePath } : {}),
         }),
-      }),
-    onSuccess: (_data, variables) => {
-      setShowBindPreset(null);
+      });
+      if (result.failed.length)
+        throw new Error(
+          `${result.failed.length}/${presetIds.length} binding(s) failed: ${result.failed
+            .map((f) => f.error)
+            .join('; ')}`,
+        );
+      return result;
+    },
+    onSuccess: () => setShowBindPreset(null),
+    onSettled: (_data, _error, variables) => {
+      // Invalidate on partial failure too — some presets may still have bound successfully.
       qc.invalidateQueries({ queryKey: ['bindings', variables.connectionId] });
       qc.invalidateQueries({ queryKey: ['models'] });
     },
@@ -219,11 +219,13 @@ export function Connections() {
       {showBindPreset && (
         <BindPresetModal
           presets={presets.data ?? []}
+          boundPresetIds={new Set((bindings.data ?? []).map((b) => b.presetId))}
           tokenCount={tokens.data?.length ?? 0}
-          error={addBinding.error?.message}
+          error={addBindings.error?.message}
+          isPending={addBindings.isPending}
           onCancel={() => setShowBindPreset(null)}
-          onBind={(presetId, apiFormat, providerBasePath) =>
-            addBinding.mutate({ connectionId: showBindPreset, presetId, apiFormat, providerBasePath })
+          onBind={(presetIds, apiFormat, providerBasePath) =>
+            addBindings.mutate({ connectionId: showBindPreset, presetIds, apiFormat, providerBasePath })
           }
         />
       )}
@@ -549,22 +551,36 @@ function AddTokenModal({
 
 function BindPresetModal({
   presets,
+  boundPresetIds,
   tokenCount,
   error,
+  isPending,
   onCancel,
   onBind,
 }: {
   presets: Preset[];
+  boundPresetIds: Set<string>;
   tokenCount: number;
   error?: string;
+  isPending: boolean;
   onCancel: () => void;
-  onBind: (presetId: string, apiFormat: string, providerBasePath: string) => void;
+  onBind: (presetIds: string[], apiFormat: string, providerBasePath: string) => void;
 }) {
-  const { register, handleSubmit, watch } = useForm<BindingForm>({
-    defaultValues: bindingDefaults,
-  });
-  const selectedPresetId = watch('presetId');
-  const selectedPreset = presets.find((p) => p.id === selectedPresetId);
+  const available = presets.filter((p) => !boundPresetIds.has(p.id));
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [apiFormat, setApiFormat] = useState('');
+  const [providerBasePath, setProviderBasePath] = useState('');
+  const allSelected = available.length > 0 && selected.size === available.length;
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
@@ -573,33 +589,67 @@ function BindPresetModal({
       }}
       role="presentation"
     >
-      <section className="card w-full max-w-md" role="dialog" aria-modal="true">
-        <h2 className="text-lg font-medium">Bind preset</h2>
+      <section className="card w-full max-w-lg" role="dialog" aria-modal="true">
+        <h2 className="text-lg font-medium">Bind presets</h2>
         <p className="muted mt-1">
-          Link a model preset to this connection. This will create model instances automatically.
+          Link one or more model presets to this connection. This will create model instances
+          automatically.
         </p>
         <form
           className="mt-4 grid gap-4"
-          onSubmit={handleSubmit((v) => onBind(v.presetId, v.apiFormat, v.providerBasePath))}
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (selected.size) onBind([...selected], apiFormat, providerBasePath);
+          }}
         >
-          <label>
-            <span className="label">Preset</span>
-            <select className="input" {...register('presetId', { required: true })}>
-              <option value="">Select a preset…</option>
-              {presets.map((p) => (
-                <option value={p.id} key={p.id}>
-                  {p.displayName} ({p.upstreamModelId})
-                </option>
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="label">Presets ({selected.size} selected)</span>
+              {available.length > 0 && (
+                <button
+                  className="text-xs text-indigo-400 hover:text-indigo-300"
+                  onClick={() =>
+                    setSelected(allSelected ? new Set() : new Set(available.map((p) => p.id)))
+                  }
+                  type="button"
+                >
+                  {allSelected ? 'Deselect all' : 'Select all'}
+                </button>
+              )}
+            </div>
+            <div className="max-h-64 overflow-y-auto rounded-lg border border-zinc-800">
+              {available.map((p) => (
+                <label
+                  className="flex cursor-pointer items-center gap-3 border-b border-zinc-800/60 px-3 py-2 last:border-b-0 hover:bg-zinc-800/40"
+                  key={p.id}
+                >
+                  <input
+                    checked={selected.has(p.id)}
+                    className="shrink-0"
+                    onChange={() => toggle(p.id)}
+                    type="checkbox"
+                  />
+                  <span className="min-w-0 flex-1 truncate text-sm">{p.displayName}</span>
+                  <span className="shrink-0 font-mono text-xs text-zinc-500">
+                    {p.upstreamModelId}
+                  </span>
+                </label>
               ))}
-            </select>
-          </label>
+              {available.length === 0 && (
+                <p className="px-3 py-3 text-center text-sm text-zinc-500">
+                  All presets are already bound to this connection.
+                </p>
+              )}
+            </div>
+          </div>
           <label>
-            <span className="label">API format</span>
+            <span className="label">API format override (optional)</span>
             <select
               className="input"
-              {...register('apiFormat')}
-              defaultValue={selectedPreset?.apiFormat ?? 'openai_compatible'}
+              onChange={(e) => setApiFormat(e.target.value)}
+              value={apiFormat}
             >
+              <option value="">No override — use each preset's own format</option>
               <option value="openai_compatible">OpenAI compatible</option>
               <option value="anthropic_compatible">Anthropic compatible</option>
             </select>
@@ -608,13 +658,15 @@ function BindPresetModal({
             <span className="label">Base path (optional)</span>
             <input
               className="input"
+              onChange={(e) => setProviderBasePath(e.target.value)}
               placeholder="/apps/anthropic or /compatible-mode/v1"
-              {...register('providerBasePath')}
+              value={providerBasePath}
             />
           </label>
           {tokenCount > 0 && (
             <p className="text-sm text-zinc-400">
-              This will create {tokenCount} model instance{tokenCount !== 1 ? 's' : ''} (one per token).
+              This will create {tokenCount} model instance{tokenCount !== 1 ? 's' : ''} per preset
+              (one per token).
             </p>
           )}
           {tokenCount === 0 && (
@@ -624,7 +676,9 @@ function BindPresetModal({
           )}
           {error && <p className="text-red-400">{error}</p>}
           <div className="flex gap-2">
-            <button className="btn btn-primary">Bind</button>
+            <button className="btn btn-primary" disabled={!selected.size || isPending}>
+              {isPending ? 'Binding…' : `Bind${selected.size ? ` (${selected.size})` : ''}`}
+            </button>
             <button type="button" className="btn" onClick={onCancel}>
               Cancel
             </button>

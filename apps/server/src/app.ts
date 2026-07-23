@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
+import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import staticPlugin from '@fastify/static';
 import { existsSync, readFileSync } from 'node:fs';
@@ -10,6 +11,7 @@ import { createDb, requestLogs } from '@gateway/db';
 import type { Config } from './config.js';
 import { dashboardRoutes } from './routes/dashboard.js';
 import { gatewayRoutes } from './routes/gateway.js';
+import { cliproxyRoutes } from './routes/cliproxy.js';
 import { dashboardAuth } from './auth.js';
 import { logError, logRequest, logWarn } from './log.js';
 import './types.js';
@@ -44,6 +46,7 @@ export async function buildApp(config: Config) {
   );
   logRetentionTimer.unref();
   await app.register(cookie, { secret: config.SESSION_SECRET });
+  await app.register(multipart, { limits: { fileSize: 1024 * 1024, files: 1 } });
   await app.register(rateLimit, { max: 120, timeWindow: '1 minute' });
   const requestStarts = new WeakMap<object, bigint>();
   app.addHook('onRequest', async (req, reply) => {
@@ -86,6 +89,7 @@ export async function buildApp(config: Config) {
   });
   await dashboardRoutes(app);
   await gatewayRoutes(app);
+  await cliproxyRoutes(app);
   app.setErrorHandler((error, req, reply) => {
     logError('request failed', {
       requestId: req.id,

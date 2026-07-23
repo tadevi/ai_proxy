@@ -297,3 +297,25 @@ export const modelUsageDaily = pgTable(
     index('model_usage_daily_user_model_idx').on(t.userId, t.upstreamModelId),
   ],
 );
+// Codex/Claude/Gemini OAuth accounts uploaded to a shared CLIProxyAPI instance.
+// The `prefix` is a global namespace on that instance (see internal/api/handlers/management/auth_files.go
+// PATCH /auth-files/fields) — CLIProxyAPI hard-filters credential selection by prefix, so a
+// `<prefix>/<model>` upstream_models.upstreamModelId can only ever resolve to this account.
+export const cliproxyAccounts = pgTable(
+  'cliproxy_accounts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    prefix: text('prefix').notNull(),
+    fileName: text('file_name').notNull(),
+    label: text('label'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    unique('cliproxy_accounts_prefix_unique').on(t.prefix),
+    index('cliproxy_accounts_user_idx').on(t.userId),
+  ],
+);

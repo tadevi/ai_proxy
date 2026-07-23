@@ -272,12 +272,19 @@ function ModelCard({
   return (
     <div className="card overflow-hidden p-0">
       <div className="p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex flex-wrap items-baseline gap-2">
-            <h3 className="font-mono text-lg font-medium">{m.displayName}</h3>
-            <span className="font-mono text-[13px] text-zinc-500">{m.upstreamModelId}</span>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate font-mono text-lg font-medium" title={m.displayName}>
+              {m.displayName}
+            </h3>
+            <span
+              className="block truncate font-mono text-[13px] text-zinc-500"
+              title={m.upstreamModelId}
+            >
+              {m.upstreamModelId}
+            </span>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <button
               aria-checked={m.enabled}
               aria-label={`${m.enabled ? 'Disable' : 'Enable'} ${m.displayName}`}

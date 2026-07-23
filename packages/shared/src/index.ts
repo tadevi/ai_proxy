@@ -46,7 +46,7 @@ const relativePathSchema = z
   .regex(/^\/[a-zA-Z0-9._~:/?#[\]@!$&'()*+,;=%-]*$/, 'Must be a relative path starting with /')
   .max(1024);
 export const modelBindingInputSchema = z.object({
-  presetId: z.string().uuid(),
+  presetIds: z.array(z.string().uuid()).min(1).max(100),
   apiFormat: apiFormatSchema.optional(),
   providerBasePath: relativePathSchema.or(z.literal('')).default(''),
 });

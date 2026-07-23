@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '../api';
+import { api, type CliproxyAccount } from '../api';
 type Key = {
   id: string;
   name: string;
@@ -27,6 +27,32 @@ export function Account({ username }: { username: string }) {
   const revoke = useMutation({
     mutationFn: (id: string) => api(`/api/keys/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['keys'] }),
+  });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const accounts = useQuery({
+    queryKey: ['cliproxy-accounts'],
+    queryFn: () => api<CliproxyAccount[]>('/api/cliproxy/accounts'),
+  });
+  const uploadAccount = useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append('file', file);
+      const response = await fetch('/api/cliproxy/accounts', { method: 'POST', body: form });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok)
+        throw new Error(
+          (body as { error?: string }).error ?? `Request failed (${response.status})`,
+        );
+      return body as CliproxyAccount;
+    },
+    onSuccess: () => {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      qc.invalidateQueries({ queryKey: ['cliproxy-accounts'] });
+    },
+  });
+  const removeAccount = useMutation({
+    mutationFn: (id: string) => api(`/api/cliproxy/accounts/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['cliproxy-accounts'] }),
   });
   const changePassword = useMutation({
     mutationFn: () =>
@@ -123,6 +149,58 @@ export function Account({ username }: { username: string }) {
             </div>
           ))}
         </div>
+      </section>
+      <section className="card mt-6">
+        <h2 className="font-medium">Connected accounts</h2>
+        <p className="muted mt-1">
+          Upload a Codex/Claude/Gemini OAuth auth file to route requests through your own
+          account via CLIProxyAPI.
+        </p>
+        {accounts.error ? (
+          <p className="mt-4 text-sm text-zinc-500">{accounts.error.message}</p>
+        ) : (
+          <>
+            <div className="my-4 flex max-w-md gap-2">
+              <input
+                ref={fileInputRef}
+                accept=".json"
+                className="input"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) uploadAccount.mutate(file);
+                }}
+                type="file"
+              />
+            </div>
+            {uploadAccount.isPending && <p className="text-sm text-zinc-400">Uploading…</p>}
+            {uploadAccount.error && (
+              <p className="text-sm text-red-400">{uploadAccount.error.message}</p>
+            )}
+            <div className="divide-y divide-zinc-800">
+              {accounts.data?.map((a) => (
+                <div className="flex items-center gap-3 py-3" key={a.id}>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400 capitalize">
+                        {a.provider}
+                      </span>
+                      {a.label && <span>{a.label}</span>}
+                    </div>
+                    <div className="font-mono text-xs text-zinc-500">
+                      {a.prefix} · created {new Date(a.createdAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <button className="btn btn-danger" onClick={() => removeAccount.mutate(a.id)}>
+                    Remove
+                  </button>
+                </div>
+              ))}
+              {accounts.data?.length === 0 && (
+                <p className="py-3 text-center text-sm text-zinc-500">No accounts connected.</p>
+              )}
+            </div>
+          </>
+        )}
       </section>
     </>
   );

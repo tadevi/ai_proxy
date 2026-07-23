@@ -34,19 +34,11 @@ import { dashboardAuth } from '../auth.js';
 import {
   encryptCredential,
   hashSecret,
+  isUniqueViolation,
   maskApiKey,
   randomToken,
   validateUpstreamUrl,
 } from '../security.js';
-
-// Drizzle wraps pg errors in DrizzleQueryError, putting the actual pg error (with its
-// `code`) on `.cause` rather than in `.message` — `error.message` never contains "23505"
-// for a real unique-violation, so that must not be used to detect one.
-function isUniqueViolation(error: unknown): boolean {
-  const code = (error as { code?: unknown })?.code;
-  const causeCode = (error as { cause?: { code?: unknown } })?.cause?.code;
-  return code === '23505' || causeCode === '23505';
-}
 
 const safeConnection = {
   id: providerConnections.id,
@@ -433,67 +425,84 @@ export async function dashboardRoutes(app: FastifyInstance) {
       )
       .orderBy(desc(modelBindings.createdAt));
   });
+  async function bindOnePreset(
+    app: FastifyInstance,
+    userId: string,
+    connectionId: string,
+    presetId: string,
+    apiFormatOverride: 'openai_compatible' | 'anthropic_compatible' | undefined,
+    providerBasePath: string,
+  ) {
+    const [preset] = await app.db
+      .select()
+      .from(modelPresets)
+      .where(
+        and(eq(modelPresets.id, presetId), or(isNull(modelPresets.userId), eq(modelPresets.userId, userId))),
+      )
+      .limit(1);
+    if (!preset) throw new Error('Preset not found');
+    const apiFormat = apiFormatOverride ?? preset.apiFormat;
+    let inserted: typeof modelBindings.$inferSelect | undefined;
+    try {
+      [inserted] = await app.db
+        .insert(modelBindings)
+        .values({ userId, presetId, connectionId, apiFormat, providerBasePath })
+        .returning();
+    } catch (error) {
+      if (isUniqueViolation(error))
+        throw new Error(
+          'This preset is already bound to this connection with the same API format.',
+        );
+      throw error;
+    }
+    // presetDisplayName isn't a model_bindings column — RETURNING can't pull it from
+    // the joined modelPresets table on a plain insert, so attach it from the preset
+    // already looked up above instead of reusing the GET handler's joined projection.
+    const binding = {
+      ...inserted!,
+      presetDisplayName: preset.displayName,
+      presetUpstreamModelId: preset.upstreamModelId,
+    };
+    // Auto-create upstream_models for all enabled tokens on this connection
+    await createUpstreamModelsForBinding(
+      app,
+      userId,
+      connectionId,
+      binding.id,
+      preset,
+      apiFormat,
+      providerBasePath,
+    );
+    return binding;
+  }
+
   app.post('/api/connections/:id/bindings', async (req, reply) => {
     const connectionId = (req.params as { id: string }).id;
     if (!(await ownsConnection(app, req.dashboardUser!.id, connectionId)))
       return reply.code(404).send({ error: 'Provider connection not found' });
     const input = modelBindingInputSchema.parse(req.body);
-    // Look up preset
-    const [preset] = await app.db
-      .select()
-      .from(modelPresets)
-      .where(
-        and(
-          eq(modelPresets.id, input.presetId),
-          or(isNull(modelPresets.userId), eq(modelPresets.userId, req.dashboardUser!.id)),
-        ),
-      )
-      .limit(1);
-    if (!preset) return reply.code(404).send({ error: 'Preset not found' });
-    const apiFormat = input.apiFormat ?? preset.apiFormat;
-    try {
-      const [inserted] = await app.db
-        .insert(modelBindings)
-        .values({
-          userId: req.dashboardUser!.id,
-          presetId: input.presetId,
+
+    const results = await Promise.allSettled(
+      input.presetIds.map((presetId) =>
+        bindOnePreset(
+          app,
+          req.dashboardUser!.id,
           connectionId,
-          apiFormat,
-          providerBasePath: input.providerBasePath,
-        })
-        .returning({
-          id: modelBindings.id,
-          presetId: modelBindings.presetId,
-          connectionId: modelBindings.connectionId,
-          apiFormat: modelBindings.apiFormat,
-          providerBasePath: modelBindings.providerBasePath,
-          createdAt: modelBindings.createdAt,
-          updatedAt: modelBindings.updatedAt,
-        });
-      // presetDisplayName isn't a model_bindings column — RETURNING can't pull it from
-      // the joined modelPresets table on a plain insert, so attach it from the preset
-      // already looked up above instead of reusing the GET handler's joined projection.
-      const binding = {
-        ...inserted!,
-        presetDisplayName: preset.displayName,
-        presetUpstreamModelId: preset.upstreamModelId,
-      };
-      // Auto-create upstream_models for all enabled tokens on this connection
-      await createUpstreamModelsForBinding(
-        app,
-        req.dashboardUser!.id,
-        connectionId,
-        binding.id,
-        preset,
-        apiFormat,
-        input.providerBasePath,
-      );
-      return reply.code(201).send(binding);
-    } catch (error) {
-      if (isUniqueViolation(error))
-        return reply.code(409).send({ error: 'This preset is already bound to this connection with the same API format.' });
-      throw error;
-    }
+          presetId,
+          input.apiFormat,
+          input.providerBasePath,
+        ),
+      ),
+    );
+    const bound = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
+    const failed = input.presetIds.flatMap((presetId, i) => {
+      const r = results[i]!;
+      return r.status === 'rejected'
+        ? [{ presetId, error: r.reason instanceof Error ? r.reason.message : 'Bind failed' }]
+        : [];
+    });
+    if (bound.length === 0) return reply.code(409).send({ bound, failed });
+    return reply.code(failed.length ? 207 : 201).send({ bound, failed });
   });
   app.delete('/api/connections/:id/bindings/:bindingId', async (req, reply) => {
     const connectionId = (req.params as { id: string }).id;

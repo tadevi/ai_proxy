@@ -46,6 +46,14 @@ export function maskApiKey(value: string) {
   if (value.length <= 8) return '•'.repeat(value.length);
   return `${value.slice(0, 3)}…${value.slice(-3)}`;
 }
+// Drizzle wraps pg errors in DrizzleQueryError, putting the actual pg error (with its
+// `code`) on `.cause` rather than in `.message` — `error.message` never contains "23505"
+// for a real unique-violation, so that must not be used to detect one.
+export function isUniqueViolation(error: unknown): boolean {
+  const code = (error as { code?: unknown })?.code;
+  const causeCode = (error as { cause?: { code?: unknown } })?.cause?.code;
+  return code === '23505' || causeCode === '23505';
+}
 export function safeEqual(a: string, b: string) {
   const x = Buffer.from(a);
   const y = Buffer.from(b);
