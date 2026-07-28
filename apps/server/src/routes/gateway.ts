@@ -765,7 +765,7 @@ async function callModel(
   usage?: StreamUsage;
 }> {
   const { model, connection, token, rules } = resolved;
-  const endpoint = requestEndpoint(model, connection);
+  const endpoint = requestEndpoint(model, connection, app.config.CLIPROXY_BASE_URL);
   await validateUpstreamUrl(
     endpoint,
     app.config.ALLOW_PRIVATE_UPSTREAMS,
@@ -934,10 +934,15 @@ async function* rawStream(body: ReadableStream<Uint8Array>, usage: StreamUsage) 
   }
 }
 
-function requestEndpoint(model: Model, connection: ProviderConnection) {
+function requestEndpoint(model: Model, connection: ProviderConnection, cliproxyBaseUrl?: string) {
   const defaultPath =
     model.apiFormat === 'openai_compatible' ? '/chat/completions' : '/v1/messages';
-  return `${connection.baseUrl.replace(/\/+$/, '')}${model.requestPathOverride ?? `${model.providerBasePath}${defaultPath}`}`;
+  // The "CLIProxyAPI" connection's baseUrl tends to drift out of sync with the actual
+  // instance URL (it's a separately redeployed service), so prefer CLIPROXY_BASE_URL
+  // — the same env var already used for account management — over the stored value.
+  const baseUrl =
+    connection.displayName === 'CLIProxyAPI' && cliproxyBaseUrl ? cliproxyBaseUrl : connection.baseUrl;
+  return `${baseUrl.replace(/\/+$/, '')}${model.requestPathOverride ?? `${model.providerBasePath}${defaultPath}`}`;
 }
 
 // Live-traffic outcomes feed the same latestTestStatus a manual "Test" click sets, so
