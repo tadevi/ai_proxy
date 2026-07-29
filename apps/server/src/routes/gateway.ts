@@ -2,11 +2,12 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { IncomingMessage } from 'node:http';
 import { and, asc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import {
-  cliproxyAccounts,
+  cliproxyModelStates,
   connectionTokens,
   mappingRoutes,
   mappings,
   modelBindings,
+  modelPresets,
   modelUsageDaily,
   providerConnections,
   requestLogs,
@@ -83,33 +84,65 @@ function isCliproxyCredentialCooldown(failure: UpstreamFailure) {
   );
 }
 
-async function cooldownCliproxyAccount(
-  app: FastifyInstance,
-  model: Model,
-  failure: UpstreamFailure,
-) {
-  if (!model.bindingId) return false;
-  const [binding] = await app.db
-    .select({ cliproxyAccountId: modelBindings.cliproxyAccountId })
+async function cliproxyModelKey(app: FastifyInstance, model: Model) {
+  if (!model.bindingId) return undefined;
+  const [key] = await app.db
+    .select({
+      cliproxyAccountId: modelBindings.cliproxyAccountId,
+      upstreamModelId: modelPresets.upstreamModelId,
+    })
     .from(modelBindings)
+    .innerJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
     .where(eq(modelBindings.id, model.bindingId))
     .limit(1);
-  if (!binding?.cliproxyAccountId) return false;
+  return key?.cliproxyAccountId ? key : undefined;
+}
 
-  const cooldownUntil = new Date(Date.now() + cooldownDurationMs);
+async function cooldownCliproxyModel(app: FastifyInstance, model: Model, failure: UpstreamFailure) {
+  const key = await cliproxyModelKey(app, model);
+  if (!key) return false;
+
+  const now = new Date();
+  const cooldownUntil = new Date(now.getTime() + cooldownDurationMs);
   await app.db
-    .update(cliproxyAccounts)
-    .set({
+    .insert(cliproxyModelStates)
+    .values({
+      cliproxyAccountId: key.cliproxyAccountId!,
+      upstreamModelId: key.upstreamModelId,
       cooldownUntil,
       latestError: failure.providerError ?? null,
-      latestErrorAt: new Date(),
+      latestErrorAt: now,
+      updatedAt: now,
     })
-    .where(eq(cliproxyAccounts.id, binding.cliproxyAccountId));
-  logWarn('CLIProxy account placed in cooldown after upstream credential cooldown', {
+    .onConflictDoUpdate({
+      target: [cliproxyModelStates.cliproxyAccountId, cliproxyModelStates.upstreamModelId],
+      set: {
+        cooldownUntil,
+        latestError: failure.providerError ?? null,
+        latestErrorAt: now,
+        updatedAt: now,
+      },
+    });
+  logWarn('CLIProxy model placed in cooldown after upstream credential cooldown', {
     resolvedUpstreamModelId: model.id,
-    cliproxyAccountId: binding.cliproxyAccountId,
+    cliproxyAccountId: key.cliproxyAccountId,
+    cliproxyUpstreamModelId: key.upstreamModelId,
     cooldownUntil: cooldownUntil.toISOString(),
   });
+  return true;
+}
+
+async function clearCliproxyModelCooldown(app: FastifyInstance, model: Model) {
+  const key = await cliproxyModelKey(app, model);
+  if (!key) return false;
+  await app.db
+    .delete(cliproxyModelStates)
+    .where(
+      and(
+        eq(cliproxyModelStates.cliproxyAccountId, key.cliproxyAccountId!),
+        eq(cliproxyModelStates.upstreamModelId, key.upstreamModelId),
+      ),
+    );
   return true;
 }
 
@@ -270,6 +303,9 @@ export async function gatewayRoutes(app: FastifyInstance) {
         row.model.upstreamModelId,
         requestSignal(req.raw),
       );
+      // Test is the explicit Retry now path: it bypasses resolver cooldown filtering.
+      // A successful real upstream call clears only this exact CLIProxy account/model state.
+      await clearCliproxyModelCooldown(app, row.model);
       await app.db
         .update(upstreamModels)
         .set({
@@ -288,6 +324,8 @@ export async function gatewayRoutes(app: FastifyInstance) {
       const message = error instanceof Error ? error.message : 'Model test failed';
       const latestError =
         error instanceof UpstreamFailure ? (error.providerError ?? { message }) : { message };
+      if (error instanceof UpstreamFailure && isCliproxyCredentialCooldown(error))
+        await cooldownCliproxyModel(app, row.model, error);
       await app.db
         .update(upstreamModels)
         .set({
@@ -478,8 +516,15 @@ async function resolve(
       .select({ model: upstreamModels, connection: providerConnections })
       .from(mappingRoutes)
       .innerJoin(modelBindings, eq(modelBindings.id, mappingRoutes.bindingId))
+      .innerJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
       .innerJoin(upstreamModels, eq(upstreamModels.bindingId, modelBindings.id))
-      .leftJoin(cliproxyAccounts, eq(cliproxyAccounts.id, modelBindings.cliproxyAccountId))
+      .leftJoin(
+        cliproxyModelStates,
+        and(
+          eq(cliproxyModelStates.cliproxyAccountId, modelBindings.cliproxyAccountId),
+          eq(cliproxyModelStates.upstreamModelId, modelPresets.upstreamModelId),
+        ),
+      )
       .innerJoin(
         providerConnections,
         eq(providerConnections.id, upstreamModels.providerConnectionId),
@@ -503,9 +548,9 @@ async function resolve(
           eq(mappingRoutes.mappingId, mapping.id),
           eq(mappingRoutes.enabled, true),
           or(
-            isNull(cliproxyAccounts.id),
-            isNull(cliproxyAccounts.cooldownUntil),
-            lte(cliproxyAccounts.cooldownUntil, new Date()),
+            isNull(cliproxyModelStates.id),
+            isNull(cliproxyModelStates.cooldownUntil),
+            lte(cliproxyModelStates.cooldownUntil, new Date()),
           ),
           eq(upstreamModels.enabled, true),
           eq(providerConnections.enabled, true),
@@ -523,7 +568,14 @@ async function resolve(
       .select({ model: upstreamModels, connection: providerConnections })
       .from(upstreamModels)
       .leftJoin(modelBindings, eq(modelBindings.id, upstreamModels.bindingId))
-      .leftJoin(cliproxyAccounts, eq(cliproxyAccounts.id, modelBindings.cliproxyAccountId))
+      .leftJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
+      .leftJoin(
+        cliproxyModelStates,
+        and(
+          eq(cliproxyModelStates.cliproxyAccountId, modelBindings.cliproxyAccountId),
+          eq(cliproxyModelStates.upstreamModelId, modelPresets.upstreamModelId),
+        ),
+      )
       .innerJoin(
         providerConnections,
         eq(providerConnections.id, upstreamModels.providerConnectionId),
@@ -545,9 +597,9 @@ async function resolve(
           eq(upstreamModels.userId, userId),
           eq(upstreamModels.upstreamModelId, incoming),
           or(
-            isNull(cliproxyAccounts.id),
-            isNull(cliproxyAccounts.cooldownUntil),
-            lte(cliproxyAccounts.cooldownUntil, new Date()),
+            isNull(cliproxyModelStates.id),
+            isNull(cliproxyModelStates.cooldownUntil),
+            lte(cliproxyModelStates.cooldownUntil, new Date()),
           ),
           eq(upstreamModels.enabled, true),
           eq(providerConnections.enabled, true),
@@ -740,7 +792,7 @@ async function handleMessage(
       });
       await recordModelFailure(app, attempt.resolved.model.id, failure);
       if (isCliproxyCredentialCooldown(failure))
-        await cooldownCliproxyAccount(app, attempt.resolved.model, failure);
+        await cooldownCliproxyModel(app, attempt.resolved.model, failure);
       const imageRoutingFailure =
         requestContainsImages(request) && isImageCapabilityFailure(failure);
       if (imageRoutingFailure) {

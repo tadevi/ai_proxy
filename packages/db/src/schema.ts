@@ -324,15 +324,35 @@ export const cliproxyAccounts = pgTable(
     prefix: text('prefix').notNull(),
     fileName: text('file_name').notNull(),
     label: text('label'),
-    // CLIProxy's OAuth cooldown is account-specific. Mirror it here so the gateway
-    // skips the exact prefix after CLIProxy first reports it unavailable.
-    cooldownUntil: timestamp('cooldown_until', { withTimezone: true }),
-    latestError: jsonb('latest_error'),
-    latestErrorAt: timestamp('latest_error_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
     unique('cliproxy_accounts_prefix_unique').on(t.prefix),
     index('cliproxy_accounts_user_idx').on(t.userId),
+  ],
+);
+
+// CLIProxy reports cooldown for one exact <account prefix>/<model>, not the whole account.
+export const cliproxyModelStates = pgTable(
+  'cliproxy_model_states',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    cliproxyAccountId: uuid('cliproxy_account_id')
+      .notNull()
+      .references(() => cliproxyAccounts.id, { onDelete: 'cascade' }),
+    upstreamModelId: text('upstream_model_id').notNull(),
+    cooldownUntil: timestamp('cooldown_until', { withTimezone: true }),
+    latestError: jsonb('latest_error'),
+    latestErrorAt: timestamp('latest_error_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    unique('cliproxy_model_states_account_model_unique').on(t.cliproxyAccountId, t.upstreamModelId),
+    index('cliproxy_model_states_cooldown_idx').on(
+      t.cliproxyAccountId,
+      t.upstreamModelId,
+      t.cooldownUntil,
+    ),
   ],
 );
