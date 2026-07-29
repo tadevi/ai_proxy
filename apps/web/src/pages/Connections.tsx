@@ -246,6 +246,7 @@ export function Connections() {
           presets={presets.data ?? []}
           bindings={bindings.data ?? []}
           cliproxyAccounts={cliproxyAccounts.data ?? []}
+          requiresCliproxyAccount={connections.data?.find((connection) => connection.id === showBindPreset)?.isCliproxy ?? false}
           tokenCount={tokens.data?.length ?? 0}
           error={addBindings.error?.message}
           isPending={addBindings.isPending}
@@ -426,21 +427,21 @@ export function Connections() {
                           key={binding.id}
                         >
                           <span
-                            className="w-32 shrink-0 truncate text-sm"
+                            className="min-w-0 flex-[2] truncate text-sm"
                             title={binding.presetDisplayName}
                           >
                             {binding.presetDisplayName}
                           </span>
                           <span
-                            className="w-36 shrink-0 truncate font-mono text-xs text-zinc-500"
+                            className="min-w-0 flex-[2] truncate font-mono text-xs text-zinc-500"
                             title={binding.presetUpstreamModelId}
                           >
                             {binding.presetUpstreamModelId}
                           </span>
-                          <span className="w-16 shrink-0 text-xs text-zinc-500">
+                          <span className="min-w-0 flex-1 truncate text-xs text-zinc-500">
                             {binding.apiFormat === 'anthropic_compatible' ? 'Anthropic' : 'OpenAI'}
                           </span>
-                          <span className="w-24 shrink-0 truncate font-mono text-xs text-zinc-500">
+                          <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-500">
                             {binding.providerBasePath || '—'}
                           </span>
                           <button
@@ -526,37 +527,45 @@ function ConnectionFormCard({
       : connectionDefaults,
   });
   return (
-    <form
-      autoComplete="off"
-      className="card mb-6 grid gap-4 md:grid-cols-2"
-      onSubmit={handleSubmit(onSave)}
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+      role="presentation"
     >
-      <h2 className="text-lg font-medium md:col-span-2">
-        {initial ? 'Edit connection' : 'Add connection'}
-      </h2>
-      <label>
-        <span className="label">Connection name</span>
-        <input className="input" {...register('displayName', { required: true })} />
-      </label>
-      <label>
-        <span className="label">Base endpoint</span>
-        <input
-          className="input"
-          placeholder="https://provider.example"
-          {...register('baseUrl', { required: true })}
-        />
-      </label>
-      <label className="flex items-center gap-2 pt-7">
-        <input type="checkbox" {...register('enabled')} /> Enabled
-      </label>
-      {error && <p className="text-red-400 md:col-span-2">{error}</p>}
-      <div className="flex gap-2 md:col-span-2">
-        <button className="btn btn-primary">Save</button>
-        <button type="button" className="btn" onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
-    </form>
+      <form
+        autoComplete="off"
+        className="card w-full max-w-2xl grid gap-4 md:grid-cols-2"
+        onSubmit={handleSubmit(onSave)}
+      >
+        <h2 className="text-lg font-medium md:col-span-2">
+          {initial ? 'Edit connection' : 'Add connection'}
+        </h2>
+        <label>
+          <span className="label">Connection name</span>
+          <input className="input" {...register('displayName', { required: true })} />
+        </label>
+        <label>
+          <span className="label">Base endpoint</span>
+          <input
+            className="input"
+            placeholder="https://provider.example"
+            {...register('baseUrl', { required: true })}
+          />
+        </label>
+        <label className="flex items-center gap-2 pt-7">
+          <input type="checkbox" {...register('enabled')} /> Enabled
+        </label>
+        {error && <p className="text-red-400 md:col-span-2">{error}</p>}
+        <div className="flex gap-2 md:col-span-2">
+          <button className="btn btn-primary">Save</button>
+          <button type="button" className="btn" onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -617,6 +626,7 @@ function BindPresetModal({
   presets,
   bindings,
   cliproxyAccounts,
+  requiresCliproxyAccount,
   tokenCount,
   error,
   isPending,
@@ -626,6 +636,7 @@ function BindPresetModal({
   presets: Preset[];
   bindings: ModelBinding[];
   cliproxyAccounts: CliproxyAccount[];
+  requiresCliproxyAccount: boolean;
   tokenCount: number;
   error?: string;
   isPending: boolean;
@@ -689,7 +700,7 @@ function BindPresetModal({
               onBind([...selected], apiFormat, providerBasePath, cliproxyAccountId || undefined);
           }}
         >
-          {cliproxyAccounts.length > 0 && (
+          {(requiresCliproxyAccount || cliproxyAccounts.length > 0) && (
             <label>
               <span className="label">CLIProxy account</span>
               <select
@@ -700,7 +711,9 @@ function BindPresetModal({
                 }}
                 value={cliproxyAccountId}
               >
-                <option value="">No CLIProxy account</option>
+                <option value="">
+                  {requiresCliproxyAccount ? 'Select an account…' : 'No CLIProxy account'}
+                </option>
                 {cliproxyAccounts.map((account) => (
                   <option key={account.id} value={account.id}>
                     {account.provider} · {account.label ?? account.prefix} · {account.prefix}
@@ -784,9 +797,15 @@ function BindPresetModal({
               No tokens on this connection. Add a token first to create instances.
             </p>
           )}
+          {requiresCliproxyAccount && !cliproxyAccountId && (
+            <p className="text-sm text-amber-400">Select a CLIProxy account before binding presets.</p>
+          )}
           {error && <p className="text-red-400">{error}</p>}
           <div className="flex gap-2">
-            <button className="btn btn-primary" disabled={!selected.size || isPending}>
+            <button
+              className="btn btn-primary"
+              disabled={!selected.size || isPending || (requiresCliproxyAccount && !cliproxyAccountId)}
+            >
               {isPending ? 'Binding…' : `Bind${selected.size ? ` (${selected.size})` : ''}`}
             </button>
             <button type="button" className="btn" onClick={onCancel}>

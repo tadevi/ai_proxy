@@ -28,6 +28,7 @@ export type ProviderConnection = {
   displayName: string;
   baseUrl: string;
   enabled: boolean;
+  isCliproxy?: boolean;
 };
 export type ConnectionToken = {
   id: string;

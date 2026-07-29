@@ -113,6 +113,13 @@
       "when": 1785340800000,
       "tag": "0015_binding_cliproxy_account",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1785344400000,
+      "tag": "0016_cliproxy_account_cooldown",
+      "breakpoints": true
     }
   ]
 }

@@ -49,6 +49,13 @@ const safeConnection = {
   createdAt: providerConnections.createdAt,
   updatedAt: providerConnections.updatedAt,
 };
+
+function isCliproxyConnection(app: FastifyInstance, baseUrl: string) {
+  return (
+    !!app.config.CLIPROXY_BASE_URL &&
+    baseUrl.replace(/\/$/, '') === app.config.CLIPROXY_BASE_URL.replace(/\/$/, '')
+  );
+}
 const safeModel = {
   id: upstreamModels.id,
   displayName: upstreamModels.displayName,
@@ -214,13 +221,17 @@ export async function dashboardRoutes(app: FastifyInstance) {
     return key ? { ok: true } : reply.code(404).send({ error: 'Key not found' });
   });
 
-  app.get('/api/connections', async (req) =>
-    app.db
+  app.get('/api/connections', async (req) => {
+    const connections = await app.db
       .select(safeConnection)
       .from(providerConnections)
       .where(eq(providerConnections.userId, req.dashboardUser!.id))
-      .orderBy(desc(providerConnections.createdAt)),
-  );
+      .orderBy(desc(providerConnections.createdAt));
+    return connections.map((connection) => ({
+      ...connection,
+      isCliproxy: isCliproxyConnection(app, connection.baseUrl),
+    }));
+  });
   app.post('/api/connections', async (req, reply) => {
     const input = providerConnectionInputSchema.parse(req.body);
     const baseUrl = await validateUpstreamUrl(
@@ -460,12 +471,9 @@ export async function dashboardRoutes(app: FastifyInstance) {
       .limit(1);
     if (!connection) throw new Error('Provider connection not found');
 
-    const isCliproxyConnection =
-      !!app.config.CLIPROXY_BASE_URL &&
-      connection.baseUrl.replace(/\/$/, '') === app.config.CLIPROXY_BASE_URL.replace(/\/$/, '');
-    if (isCliproxyConnection && !cliproxyAccountId)
+    if (isCliproxyConnection(app, connection.baseUrl) && !cliproxyAccountId)
       throw new Error('Select a CLIProxy account for this binding');
-    if (!isCliproxyConnection && cliproxyAccountId)
+    if (!isCliproxyConnection(app, connection.baseUrl) && cliproxyAccountId)
       throw new Error('CLIProxy accounts can only be used with the CLIProxyAPI connection');
 
     const [cliproxyAccount] = cliproxyAccountId

@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { IncomingMessage } from 'node:http';
 import { and, asc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import {
+  cliproxyAccounts,
   connectionTokens,
   mappingRoutes,
   mappings,
@@ -71,6 +72,45 @@ const safeProviderMessage = (status: number) =>
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isCliproxyCredentialCooldown(failure: UpstreamFailure) {
+  const message = failure.providerError?.response?.message;
+  return (
+    failure.status === 429 &&
+    typeof message === 'string' &&
+    /^All credentials for model .+ are cooling down$/i.test(message)
+  );
+}
+
+async function cooldownCliproxyAccount(
+  app: FastifyInstance,
+  model: Model,
+  failure: UpstreamFailure,
+) {
+  if (!model.bindingId) return false;
+  const [binding] = await app.db
+    .select({ cliproxyAccountId: modelBindings.cliproxyAccountId })
+    .from(modelBindings)
+    .where(eq(modelBindings.id, model.bindingId))
+    .limit(1);
+  if (!binding?.cliproxyAccountId) return false;
+
+  const cooldownUntil = new Date(Date.now() + cooldownDurationMs);
+  await app.db
+    .update(cliproxyAccounts)
+    .set({
+      cooldownUntil,
+      latestError: failure.providerError ?? null,
+      latestErrorAt: new Date(),
+    })
+    .where(eq(cliproxyAccounts.id, binding.cliproxyAccountId));
+  logWarn('CLIProxy account placed in cooldown after upstream credential cooldown', {
+    resolvedUpstreamModelId: model.id,
+    cliproxyAccountId: binding.cliproxyAccountId,
+    cooldownUntil: cooldownUntil.toISOString(),
+  });
+  return true;
 }
 
 function containsImageContent(value: unknown): boolean {
@@ -357,7 +397,9 @@ async function attachTokens(
   app: FastifyInstance,
   rows: Array<{ model: Model; connection: ProviderConnection }>,
 ): Promise<ResolvedModelBase[]> {
-  const tokenIds = [...new Set(rows.map((r) => r.model.tokenId).filter((id): id is string => id != null))];
+  const tokenIds = [
+    ...new Set(rows.map((r) => r.model.tokenId).filter((id): id is string => id != null)),
+  ];
   const tokens = tokenIds.length
     ? await app.db.select().from(connectionTokens).where(inArray(connectionTokens.id, tokenIds))
     : [];
@@ -437,6 +479,7 @@ async function resolve(
       .from(mappingRoutes)
       .innerJoin(modelBindings, eq(modelBindings.id, mappingRoutes.bindingId))
       .innerJoin(upstreamModels, eq(upstreamModels.bindingId, modelBindings.id))
+      .leftJoin(cliproxyAccounts, eq(cliproxyAccounts.id, modelBindings.cliproxyAccountId))
       .innerJoin(
         providerConnections,
         eq(providerConnections.id, upstreamModels.providerConnectionId),
@@ -449,13 +492,21 @@ async function resolve(
         and(
           eq(connectionTokens.id, upstreamModels.tokenId),
           eq(connectionTokens.enabled, true),
-          or(isNull(connectionTokens.cooldownUntil), lte(connectionTokens.cooldownUntil, new Date())),
+          or(
+            isNull(connectionTokens.cooldownUntil),
+            lte(connectionTokens.cooldownUntil, new Date()),
+          ),
         ),
       )
       .where(
         and(
           eq(mappingRoutes.mappingId, mapping.id),
           eq(mappingRoutes.enabled, true),
+          or(
+            isNull(cliproxyAccounts.id),
+            isNull(cliproxyAccounts.cooldownUntil),
+            lte(cliproxyAccounts.cooldownUntil, new Date()),
+          ),
           eq(upstreamModels.enabled, true),
           eq(providerConnections.enabled, true),
         ),
@@ -471,6 +522,8 @@ async function resolve(
     const rows = await app.db
       .select({ model: upstreamModels, connection: providerConnections })
       .from(upstreamModels)
+      .leftJoin(modelBindings, eq(modelBindings.id, upstreamModels.bindingId))
+      .leftJoin(cliproxyAccounts, eq(cliproxyAccounts.id, modelBindings.cliproxyAccountId))
       .innerJoin(
         providerConnections,
         eq(providerConnections.id, upstreamModels.providerConnectionId),
@@ -481,13 +534,21 @@ async function resolve(
         and(
           eq(connectionTokens.id, upstreamModels.tokenId),
           eq(connectionTokens.enabled, true),
-          or(isNull(connectionTokens.cooldownUntil), lte(connectionTokens.cooldownUntil, new Date())),
+          or(
+            isNull(connectionTokens.cooldownUntil),
+            lte(connectionTokens.cooldownUntil, new Date()),
+          ),
         ),
       )
       .where(
         and(
           eq(upstreamModels.userId, userId),
           eq(upstreamModels.upstreamModelId, incoming),
+          or(
+            isNull(cliproxyAccounts.id),
+            isNull(cliproxyAccounts.cooldownUntil),
+            lte(cliproxyAccounts.cooldownUntil, new Date()),
+          ),
           eq(upstreamModels.enabled, true),
           eq(providerConnections.enabled, true),
         ),
@@ -646,7 +707,7 @@ async function handleMessage(
         requestId,
         incomingModel: request.model,
         resolvedUpstreamModel: attempt.resolved.model.displayName,
-            resolvedUpstreamModelId: attempt.resolved.model.id,
+        resolvedUpstreamModelId: attempt.resolved.model.id,
         apiFormat: attempt.resolved.model.apiFormat,
         status: 200,
         latencyMs: Date.now() - started,
@@ -672,12 +733,14 @@ async function handleMessage(
         requestId,
         incomingModel: request.model,
         resolvedUpstreamModel: attempt.resolved.model.displayName,
-            resolvedUpstreamModelId: attempt.resolved.model.id,
+        resolvedUpstreamModelId: attempt.resolved.model.id,
         upstreamStatus: failure.status,
         errorCategory: failure.category,
         providerError: failure.providerError,
       });
       await recordModelFailure(app, attempt.resolved.model.id, failure);
+      if (isCliproxyCredentialCooldown(failure))
+        await cooldownCliproxyAccount(app, attempt.resolved.model, failure);
       const imageRoutingFailure =
         requestContainsImages(request) && isImageCapabilityFailure(failure);
       if (imageRoutingFailure) {
@@ -688,7 +751,7 @@ async function handleMessage(
         logWarn('upstream has no image-capable endpoint available; trying the next image route', {
           requestId,
           resolvedUpstreamModel: attempt.resolved.model.displayName,
-            resolvedUpstreamModelId: attempt.resolved.model.id,
+          resolvedUpstreamModelId: attempt.resolved.model.id,
         });
       }
       // Quota/auth failures (403 cooldown, 401/402 disable) are about the credential,
@@ -698,24 +761,34 @@ async function handleMessage(
         const cooldownUntil = new Date(Date.now() + cooldownDurationMs);
         await app.db
           .update(connectionTokens)
-          .set({ cooldownUntil, latestError: failure.providerError ?? null, latestErrorAt: new Date(), updatedAt: new Date() })
+          .set({
+            cooldownUntil,
+            latestError: failure.providerError ?? null,
+            latestErrorAt: new Date(),
+            updatedAt: new Date(),
+          })
           .where(eq(connectionTokens.id, attempt.resolved.token.id));
         logWarn('token placed in cooldown after upstream quota or access failure', {
           requestId,
           resolvedUpstreamModel: attempt.resolved.model.displayName,
-            resolvedUpstreamModelId: attempt.resolved.model.id,
+          resolvedUpstreamModelId: attempt.resolved.model.id,
           cooldownUntil: cooldownUntil.toISOString(),
         });
       }
       if (isDisableError(failure.status, failure.providerError) && attempt.resolved.token) {
         await app.db
           .update(connectionTokens)
-          .set({ enabled: false, latestError: failure.providerError ?? null, latestErrorAt: new Date(), updatedAt: new Date() })
+          .set({
+            enabled: false,
+            latestError: failure.providerError ?? null,
+            latestErrorAt: new Date(),
+            updatedAt: new Date(),
+          })
           .where(eq(connectionTokens.id, attempt.resolved.token.id));
         logWarn('token auto-disabled after upstream payment or auth failure', {
           requestId,
           resolvedUpstreamModel: attempt.resolved.model.displayName,
-            resolvedUpstreamModelId: attempt.resolved.model.id,
+          resolvedUpstreamModelId: attempt.resolved.model.id,
           status: failure.status,
         });
       }
@@ -787,7 +860,12 @@ async function callModel(
   clientSignal.addEventListener('abort', abort, { once: true });
   try {
     if (!token)
-      throw new UpstreamFailure('No API token configured for this model.', 500, false, 'configuration_error');
+      throw new UpstreamFailure(
+        'No API token configured for this model.',
+        500,
+        false,
+        'configuration_error',
+      );
     const key = decryptCredential(token, app.config.CREDENTIAL_ENCRYPTION_KEY);
     const requestForModel = model.maxOutputTokens
       ? { ...request, max_tokens: Math.min(request.max_tokens, model.maxOutputTokens) }
@@ -828,7 +906,9 @@ async function callModel(
       throw new UpstreamFailure(
         safeProviderMessage(response.status),
         response.status,
-        fallbackStatuses.has(response.status) || cooldownStatuses.has(response.status) || isDisableError(response.status, providerError),
+        fallbackStatuses.has(response.status) ||
+          cooldownStatuses.has(response.status) ||
+          isDisableError(response.status, providerError),
         isDisableError(response.status, providerError)
           ? 'disabled_upstream'
           : response.status === 401 || response.status === 403
@@ -906,7 +986,8 @@ async function* rawStream(body: ReadableStream<Uint8Array>, usage: StreamUsage) 
       if (typeof eventUsage?.output_tokens === 'number')
         usage.outputTokens = eventUsage.output_tokens;
       if (typeof eventUsage?.cache_creation_input_tokens === 'number')
-        usage.cacheInputTokens = (usage.cacheInputTokens ?? 0) + eventUsage.cache_creation_input_tokens;
+        usage.cacheInputTokens =
+          (usage.cacheInputTokens ?? 0) + eventUsage.cache_creation_input_tokens;
       if (typeof eventUsage?.cache_read_input_tokens === 'number')
         usage.cacheInputTokens = (usage.cacheInputTokens ?? 0) + eventUsage.cache_read_input_tokens;
     } catch {
@@ -941,7 +1022,9 @@ function requestEndpoint(model: Model, connection: ProviderConnection, cliproxyB
   // instance URL (it's a separately redeployed service), so prefer CLIPROXY_BASE_URL
   // — the same env var already used for account management — over the stored value.
   const baseUrl =
-    connection.displayName === 'CLIProxyAPI' && cliproxyBaseUrl ? cliproxyBaseUrl : connection.baseUrl;
+    connection.displayName === 'CLIProxyAPI' && cliproxyBaseUrl
+      ? cliproxyBaseUrl
+      : connection.baseUrl;
   return `${baseUrl.replace(/\/+$/, '')}${model.requestPathOverride ?? `${model.providerBasePath}${defaultPath}`}`;
 }
 
@@ -995,7 +1078,11 @@ async function writeLog(app: FastifyInstance, values: typeof requestLogs.$inferI
         cacheInputTokens: values.cacheInputTokens ?? 0,
       })
       .onConflictDoUpdate({
-        target: [modelUsageDaily.userId, modelUsageDaily.upstreamModelId, modelUsageDaily.usageDate],
+        target: [
+          modelUsageDaily.userId,
+          modelUsageDaily.upstreamModelId,
+          modelUsageDaily.usageDate,
+        ],
         set: {
           requestCount: sql`${modelUsageDaily.requestCount} + 1`,
           inputTokens: sql`${modelUsageDaily.inputTokens} + ${values.inputTokens ?? 0}`,

@@ -324,6 +324,11 @@ export const cliproxyAccounts = pgTable(
     prefix: text('prefix').notNull(),
     fileName: text('file_name').notNull(),
     label: text('label'),
+    // CLIProxy's OAuth cooldown is account-specific. Mirror it here so the gateway
+    // skips the exact prefix after CLIProxy first reports it unavailable.
+    cooldownUntil: timestamp('cooldown_until', { withTimezone: true }),
+    latestError: jsonb('latest_error'),
+    latestErrorAt: timestamp('latest_error_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
