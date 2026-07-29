@@ -451,11 +451,6 @@ export function Connections() {
                               title={binding.cliproxyAccountPrefix ?? undefined}
                             >
                               {binding.cliproxyAccountLabel ?? binding.cliproxyAccountPrefix ?? '—'}
-                              {binding.cliproxyAccountPrefix && (
-                                <span className="ml-1 font-mono text-zinc-600">
-                                  · {binding.cliproxyAccountPrefix.slice(0, 12)}…
-                                </span>
-                              )}
                             </span>
                           )}
                           <span className="min-w-0 flex-1 truncate text-xs text-zinc-500">
