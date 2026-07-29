@@ -16,12 +16,20 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     );
   return body as T;
 }
+export type CliproxyModelState = {
+  cliproxyAccountId: string;
+  upstreamModelId: string;
+  cooldownUntil?: string | null;
+  latestError?: Record<string, unknown> | null;
+  latestErrorAt?: string | null;
+};
 export type CliproxyAccount = {
   id: string;
   provider: string;
   prefix: string;
   label?: string | null;
   createdAt: string;
+  modelStates?: CliproxyModelState[];
 };
 export type ProviderConnection = {
   id: string;

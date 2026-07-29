@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type CliproxyAccount } from '../api';
+import { api, type CliproxyAccount, type CliproxyModelState } from '../api';
+import { latestErrorMessage } from '../format';
 type Key = {
   id: string;
   name: string;
@@ -9,6 +10,11 @@ type Key = {
   lastUsedAt?: string;
   revokedAt?: string;
 };
+
+function isCooling(state: CliproxyModelState) {
+  return !!state.cooldownUntil && new Date(state.cooldownUntil) > new Date();
+}
+
 export function Account({ username }: { username: string }) {
   const qc = useQueryClient();
   const [name, setName] = useState('Claude Code');
@@ -177,24 +183,71 @@ export function Account({ username }: { username: string }) {
               <p className="text-sm text-red-400">{uploadAccount.error.message}</p>
             )}
             <div className="divide-y divide-zinc-800">
-              {accounts.data?.map((a) => (
-                <div className="flex items-center gap-3 py-3" key={a.id}>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400 capitalize">
-                        {a.provider}
-                      </span>
-                      {a.label && <span>{a.label}</span>}
+              {accounts.data?.map((a) => {
+                const states = a.modelStates ?? [];
+                const coolingCount = states.filter(isCooling).length;
+                return (
+                  <div className="py-3" key={a.id}>
+                    <div className="flex items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400 capitalize">
+                            {a.provider}
+                          </span>
+                          <span className="truncate">{a.label ?? a.prefix}</span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs ${coolingCount ? 'bg-amber-950 text-amber-400' : 'bg-emerald-950 text-emerald-400'}`}
+                          >
+                            {coolingCount ? `${coolingCount} cooling` : 'Available'}
+                          </span>
+                        </div>
+                        <div className="truncate font-mono text-xs text-zinc-500" title={a.prefix}>
+                          {a.prefix} · created {new Date(a.createdAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <button className="btn btn-danger" onClick={() => removeAccount.mutate(a.id)}>
+                        Remove
+                      </button>
                     </div>
-                    <div className="font-mono text-xs text-zinc-500">
-                      {a.prefix} · created {new Date(a.createdAt).toLocaleDateString()}
-                    </div>
+                    {states.length > 0 && (
+                      <div className="mt-3 grid gap-2 pl-2 sm:pl-4">
+                        {states.map((state) => {
+                          const cooling = isCooling(state);
+                          const error = latestErrorMessage(state.latestError);
+                          return (
+                            <div
+                              className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs"
+                              key={state.upstreamModelId}
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="font-mono text-zinc-300">
+                                  {state.upstreamModelId}
+                                </span>
+                                <span className={cooling ? 'text-amber-400' : 'text-zinc-500'}>
+                                  {cooling && state.cooldownUntil
+                                    ? `Cooling until ${new Date(state.cooldownUntil).toLocaleString()}`
+                                    : 'Available'}
+                                </span>
+                              </div>
+                              {error && (
+                                <div
+                                  className="mt-1 truncate text-zinc-500"
+                                  title={error}
+                                >
+                                  Last error{state.latestErrorAt
+                                    ? ` · ${new Date(state.latestErrorAt).toLocaleString()}`
+                                    : ''}{' '}
+                                  — {error}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                  <button className="btn btn-danger" onClick={() => removeAccount.mutate(a.id)}>
-                    Remove
-                  </button>
-                </div>
-              ))}
+                );
+              })}
               {accounts.data?.length === 0 && (
                 <p className="py-3 text-center text-sm text-zinc-500">No accounts connected.</p>
               )}

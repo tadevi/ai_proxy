@@ -1,7 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { and, desc, eq, sql } from 'drizzle-orm';
-import { cliproxyAccounts, connectionTokens, providerConnections } from '@gateway/db';
+import {
+  cliproxyAccounts,
+  cliproxyModelStates,
+  connectionTokens,
+  providerConnections,
+} from '@gateway/db';
 import { encryptCredential, isUniqueViolation, maskApiKey } from '../security.js';
 
 // CLIProxyAPI's own provider names in the auth file's "type" field — Gemini auth files
@@ -104,7 +109,7 @@ export async function cliproxyRoutes(app: FastifyInstance) {
   }
 
   app.get('/api/cliproxy/accounts', async (req) => {
-    return app.db
+    const accounts = await app.db
       .select({
         id: cliproxyAccounts.id,
         provider: cliproxyAccounts.provider,
@@ -115,6 +120,25 @@ export async function cliproxyRoutes(app: FastifyInstance) {
       .from(cliproxyAccounts)
       .where(eq(cliproxyAccounts.userId, req.dashboardUser!.id))
       .orderBy(desc(cliproxyAccounts.createdAt));
+    if (!accounts.length) return [];
+
+    const states = await app.db
+      .select({
+        cliproxyAccountId: cliproxyModelStates.cliproxyAccountId,
+        upstreamModelId: cliproxyModelStates.upstreamModelId,
+        cooldownUntil: cliproxyModelStates.cooldownUntil,
+        latestError: cliproxyModelStates.latestError,
+        latestErrorAt: cliproxyModelStates.latestErrorAt,
+      })
+      .from(cliproxyModelStates)
+      .innerJoin(cliproxyAccounts, eq(cliproxyAccounts.id, cliproxyModelStates.cliproxyAccountId))
+      .where(eq(cliproxyAccounts.userId, req.dashboardUser!.id))
+      .orderBy(desc(cliproxyModelStates.latestErrorAt));
+
+    return accounts.map((account) => ({
+      ...account,
+      modelStates: states.filter((state) => state.cliproxyAccountId === account.id),
+    }));
   });
 
   app.post('/api/cliproxy/accounts', async (req, reply) => {

@@ -10,11 +10,11 @@
   - [x] Update mapping-route and direct-model resolution to filter only the affected account/model pair.
   - [x] Remove the account-wide cooldown fields from `cliproxy_accounts`.
 
-- [ ] Change `upstream_models.binding_id` from `ON DELETE SET NULL` to `ON DELETE CASCADE`.
-  - [ ] Add a migration for the foreign-key change.
-  - [ ] Remove redundant manual upstream-model cleanup where cascade behavior is sufficient.
-  - [ ] Verify deleting a binding cannot leave a routable model with a stale CLIProxy prefix.
-  - [ ] Verify mapping routes, transformation rules, and usage rows cascade as intended.
+- [x] Change `upstream_models.binding_id` from `ON DELETE SET NULL` to `ON DELETE CASCADE`.
+  - [x] Add migration `0019_binding_model_cascade.sql`.
+  - [x] Remove redundant manual upstream-model cleanup in binding-delete and account-delete handlers.
+  - [x] Verified no orphan models exist (`binding_id IS NULL` count = 0) before migration.
+  - [x] Mapping routes, transformation rules, and usage rows cascade correctly via existing FKs.
 
 - [x] Retire Drizzle snapshot generation for this project.
   - [x] Remove stale `*_snapshot.json` metadata and the `db:generate` script.
@@ -91,18 +91,17 @@
 
 ## P1 — CLIProxy account UI/UX
 
-- [ ] Show the selected CLIProxy account in Connections → Model bindings.
-  - [ ] Add an Account column or chip.
-  - [ ] Show account label/email.
-  - [ ] Show a shortened prefix with the full prefix in a tooltip.
-  - [ ] Ensure two bindings for the same preset but different accounts are clearly distinguishable.
+- [x] Show the selected CLIProxy account in Connections → Model bindings.
+  - [x] Show account label/email on each CLIProxy binding row.
+  - [x] Show a shortened prefix with the full prefix in a tooltip.
+  - [x] Ensure two bindings for the same preset but different accounts are clearly distinguishable.
 
-- [ ] Show cooldown and latest error state in the Account tab.
-  - [ ] Return model-level cooldown state from the API.
-  - [ ] Display the affected model.
-  - [ ] Display `cooldown_until` in local time.
-  - [ ] Display a sanitized latest error.
-  - [ ] Show active/available/cooling status clearly.
+- [x] Show cooldown and latest error state in the Account tab.
+  - [x] Return model-level cooldown state from the API.
+  - [x] Display the affected model.
+  - [x] Display `cooldown_until` in local time.
+  - [x] Display the sanitized latest error retained by the gateway.
+  - [x] Show available/cooling status clearly.
 
 - [x] Use the existing model Test button as the explicit Retry now action.
   - [x] Test bypasses local cooldown filtering and performs a real upstream request.
