@@ -2,16 +2,13 @@
 
 ## P0 — Correctness and data integrity
 
-- [ ] Scope CLIProxy cooldown by account and model instead of the entire account.
-  - [ ] Add a model-level state table such as `cliproxy_model_states`.
-  - [ ] Store `cliproxy_account_id`.
-  - [ ] Store the unprefixed `upstream_model_id`.
-  - [ ] Add a unique constraint on `(cliproxy_account_id, upstream_model_id)`.
-  - [ ] Store `cooldown_until`, `latest_error`, and `latest_error_at`.
-  - [ ] Update mapping-route resolution to filter only the affected account/model pair.
-  - [ ] Update direct-model resolution to apply the same account/model filter.
-  - [ ] Migrate or remove the account-wide cooldown fields from `cliproxy_accounts`.
-  - [ ] Confirm a Claude cooldown does not suppress Gemini models served by the same Antigravity account.
+- [x] Scope CLIProxy cooldown by account and model instead of the entire account.
+  - [x] Add a model-level state table: `cliproxy_model_states`.
+  - [x] Store `cliproxy_account_id` and the unprefixed `upstream_model_id`.
+  - [x] Add a unique constraint on `(cliproxy_account_id, upstream_model_id)`.
+  - [x] Store `cooldown_until`, `latest_error`, and `latest_error_at`.
+  - [x] Update mapping-route and direct-model resolution to filter only the affected account/model pair.
+  - [x] Remove the account-wide cooldown fields from `cliproxy_accounts`.
 
 - [ ] Change `upstream_models.binding_id` from `ON DELETE SET NULL` to `ON DELETE CASCADE`.
   - [ ] Add a migration for the foreign-key change.
@@ -19,10 +16,11 @@
   - [ ] Verify deleting a binding cannot leave a routable model with a stale CLIProxy prefix.
   - [ ] Verify mapping routes, transformation rules, and usage rows cascade as intended.
 
-- [ ] Repair Drizzle migration metadata.
-  - [ ] Add or regenerate metadata snapshots for migrations `0015` and `0016`.
-  - [ ] Confirm a future `drizzle-kit generate` does not regenerate already-applied changes.
-  - [ ] Document the migration-generation workflow to avoid hand-maintained journal drift.
+- [x] Retire Drizzle snapshot generation for this project.
+  - [x] Remove stale `*_snapshot.json` metadata and the `db:generate` script.
+  - [x] Keep `meta/_journal.json`; the runtime migrator requires it to load reviewed SQL migrations.
+  - [x] Use reviewed, explicit SQL migrations and append their journal entries manually.
+  - [ ] If generated migrations are ever reconsidered, establish and verify a complete baseline in an isolated environment first.
 
 ## P1 — Explicit provider and connection identity
 

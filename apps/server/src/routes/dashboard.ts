@@ -587,17 +587,8 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const bindingId = (req.params as { bindingId: string }).bindingId;
     if (!(await ownsConnection(app, req.dashboardUser!.id, connectionId)))
       return reply.code(404).send({ error: 'Provider connection not found' });
-    // upstream_models.binding_id only sets null on binding deletion (not cascade), so
-    // models tied to this binding must be deleted explicitly; mapping_routes then
-    // cascades from that.
-    await app.db
-      .delete(upstreamModels)
-      .where(
-        and(
-          eq(upstreamModels.bindingId, bindingId),
-          eq(upstreamModels.userId, req.dashboardUser!.id),
-        ),
-      );
+    // The database cascades this deletion through upstream models, their rules/usage,
+    // and mapping routes. Keeping it atomic prevents stale model instances from surviving.
     const [binding] = await app.db
       .delete(modelBindings)
       .where(

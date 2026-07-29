@@ -134,6 +134,13 @@
       "when": 1785351600000,
       "tag": "0018_managed_cliproxy_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785355200000,
+      "tag": "0019_binding_model_cascade",
+      "breakpoints": true
     }
   ]
 }

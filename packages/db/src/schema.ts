@@ -178,7 +178,7 @@ export const upstreamModels = pgTable(
     providerConnectionId: uuid('provider_connection_id')
       .notNull()
       .references(() => providerConnections.id, { onDelete: 'cascade' }),
-    bindingId: uuid('binding_id').references(() => modelBindings.id, { onDelete: 'set null' }),
+    bindingId: uuid('binding_id').references(() => modelBindings.id, { onDelete: 'cascade' }),
     tokenId: uuid('token_id').references(() => connectionTokens.id, { onDelete: 'set null' }),
     apiFormat: apiFormat('api_format').notNull(),
     providerBasePath: text('provider_base_path').default('').notNull(),

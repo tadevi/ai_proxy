@@ -1,13 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
-import {
-  cliproxyAccounts,
-  connectionTokens,
-  modelBindings,
-  providerConnections,
-  upstreamModels,
-} from '@gateway/db';
+import { and, desc, eq, sql } from 'drizzle-orm';
+import { cliproxyAccounts, connectionTokens, providerConnections } from '@gateway/db';
 import { encryptCredential, isUniqueViolation, maskApiKey } from '../security.js';
 
 // CLIProxyAPI's own provider names in the auth file's "type" field — Gemini auth files
@@ -265,21 +259,8 @@ export async function cliproxyRoutes(app: FastifyInstance) {
         .send({ error: `CLIProxyAPI delete failed: ${text || deleteRes.statusText}` });
     }
 
-    // Delete model instances for only the exact account's bindings. The account FK then
-    // cascades its bindings and mapping routes without affecting another Codex account.
-    const affectedBindings = await app.db
-      .select({ id: modelBindings.id })
-      .from(modelBindings)
-      .where(eq(modelBindings.cliproxyAccountId, account.id));
-    if (affectedBindings.length) {
-      await app.db.delete(upstreamModels).where(
-        inArray(
-          upstreamModels.bindingId,
-          affectedBindings.map((binding) => binding.id),
-        ),
-      );
-    }
-
+    // Account → bindings → upstream models cascades in the database, preserving the
+    // exact-account boundary while also removing dependent routes, rules, and usage.
     await app.db.delete(cliproxyAccounts).where(eq(cliproxyAccounts.id, id));
     return { ok: true };
   });
