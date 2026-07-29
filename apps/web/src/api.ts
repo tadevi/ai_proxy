@@ -66,6 +66,10 @@ export type Model = {
   bindingId: string | null;
   tokenId: string | null;
   tokenName: string | null;
+  // Set only for a model bound through CLIProxyAPI. This identifies the selected auth account,
+  // not the internal inference credential.
+  cliproxyAccountLabel?: string | null;
+  cliproxyAccountPrefix?: string | null;
   // Read-only — reflects the token's own state, only Tokens (on the connection) can change it.
   tokenEnabled: boolean | null;
   tokenCooldownUntil?: string | null;

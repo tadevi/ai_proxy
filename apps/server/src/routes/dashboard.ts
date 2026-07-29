@@ -1,6 +1,19 @@
 import type { FastifyInstance } from 'fastify';
 import bcrypt from 'bcryptjs';
-import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+} from 'drizzle-orm';
 import {
   cliproxyAccounts,
   connectionTokens,
@@ -65,6 +78,8 @@ const safeModel = {
   bindingId: upstreamModels.bindingId,
   tokenId: upstreamModels.tokenId,
   tokenName: connectionTokens.name,
+  cliproxyAccountLabel: cliproxyAccounts.label,
+  cliproxyAccountPrefix: cliproxyAccounts.prefix,
   // Read-only view of the credential's own state — the Models tab shows this per
   // instance, but only Tokens (on the connection) can actually change it.
   tokenEnabled: connectionTokens.enabled,
@@ -297,8 +312,10 @@ export async function dashboardRoutes(app: FastifyInstance) {
   };
   app.get('/api/connections/:id/tokens', async (req, reply) => {
     const connectionId = (req.params as { id: string }).id;
-    if (!(await ownsConnection(app, req.dashboardUser!.id, connectionId)))
-      return reply.code(404).send({ error: 'Provider connection not found' });
+    const connection = await getOwnedConnection(app, req.dashboardUser!.id, connectionId);
+    if (!connection) return reply.code(404).send({ error: 'Provider connection not found' });
+    if (isCliproxyConnection(app, connection.baseUrl))
+      return reply.code(403).send({ error: 'CLIProxyAPI credentials are managed by the server' });
     return app.db
       .select(safeToken)
       .from(connectionTokens)
@@ -307,8 +324,10 @@ export async function dashboardRoutes(app: FastifyInstance) {
   });
   app.post('/api/connections/:id/tokens', async (req, reply) => {
     const connectionId = (req.params as { id: string }).id;
-    if (!(await ownsConnection(app, req.dashboardUser!.id, connectionId)))
-      return reply.code(404).send({ error: 'Provider connection not found' });
+    const connection = await getOwnedConnection(app, req.dashboardUser!.id, connectionId);
+    if (!connection) return reply.code(404).send({ error: 'Provider connection not found' });
+    if (isCliproxyConnection(app, connection.baseUrl))
+      return reply.code(403).send({ error: 'CLIProxyAPI credentials are managed by the server' });
     const input = connectionTokenInputSchema.parse(req.body);
     const encrypted = encryptCredential(input.apiKey, app.config.CREDENTIAL_ENCRYPTION_KEY);
     const keyPreview = maskApiKey(input.apiKey);
@@ -338,8 +357,10 @@ export async function dashboardRoutes(app: FastifyInstance) {
   app.patch('/api/connections/:id/tokens/:tokenId', async (req, reply) => {
     const connectionId = (req.params as { id: string }).id;
     const tokenId = (req.params as { tokenId: string }).tokenId;
-    if (!(await ownsConnection(app, req.dashboardUser!.id, connectionId)))
-      return reply.code(404).send({ error: 'Provider connection not found' });
+    const connection = await getOwnedConnection(app, req.dashboardUser!.id, connectionId);
+    if (!connection) return reply.code(404).send({ error: 'Provider connection not found' });
+    if (isCliproxyConnection(app, connection.baseUrl))
+      return reply.code(403).send({ error: 'CLIProxyAPI credentials are managed by the server' });
     const input = connectionTokenUpdateSchema.parse(req.body);
     const encrypted = input.apiKey
       ? encryptCredential(input.apiKey, app.config.CREDENTIAL_ENCRYPTION_KEY)
@@ -367,8 +388,10 @@ export async function dashboardRoutes(app: FastifyInstance) {
   app.delete('/api/connections/:id/tokens/:tokenId', async (req, reply) => {
     const connectionId = (req.params as { id: string }).id;
     const tokenId = (req.params as { tokenId: string }).tokenId;
-    if (!(await ownsConnection(app, req.dashboardUser!.id, connectionId)))
-      return reply.code(404).send({ error: 'Provider connection not found' });
+    const connection = await getOwnedConnection(app, req.dashboardUser!.id, connectionId);
+    if (!connection) return reply.code(404).send({ error: 'Provider connection not found' });
+    if (isCliproxyConnection(app, connection.baseUrl))
+      return reply.code(403).send({ error: 'CLIProxyAPI credentials are managed by the server' });
     // upstream_models.token_id only sets null on token deletion (not cascade), so models
     // tied to this token must be deleted explicitly; mapping_routes then cascades from that.
     await app.db
@@ -831,8 +854,15 @@ export async function dashboardRoutes(app: FastifyInstance) {
       .where(and(...baseConditions));
     const total = totalRow?.total ?? 0;
     const pageRows = await app.db
-      .select()
+      .select({
+        ...getTableColumns(requestLogs),
+        cliproxyAccountLabel: cliproxyAccounts.label,
+        cliproxyAccountPrefix: cliproxyAccounts.prefix,
+      })
       .from(requestLogs)
+      .leftJoin(upstreamModels, eq(upstreamModels.id, requestLogs.resolvedUpstreamModelId))
+      .leftJoin(modelBindings, eq(modelBindings.id, upstreamModels.bindingId))
+      .leftJoin(cliproxyAccounts, eq(cliproxyAccounts.id, modelBindings.cliproxyAccountId))
       .where(and(...conditions))
       .orderBy(desc(requestLogs.createdAt), desc(requestLogs.id))
       .limit(pageSize + 1);
@@ -915,16 +945,17 @@ async function ownsModel(app: FastifyInstance, userId: string, id: string) {
     ).length === 1
   );
 }
+async function getOwnedConnection(app: FastifyInstance, userId: string, id: string) {
+  const [connection] = await app.db
+    .select({ id: providerConnections.id, baseUrl: providerConnections.baseUrl })
+    .from(providerConnections)
+    .where(and(eq(providerConnections.id, id), eq(providerConnections.userId, userId)))
+    .limit(1);
+  return connection;
+}
+
 async function ownsConnection(app: FastifyInstance, userId: string, id: string) {
-  return (
-    (
-      await app.db
-        .select({ id: providerConnections.id })
-        .from(providerConnections)
-        .where(and(eq(providerConnections.id, id), eq(providerConnections.userId, userId)))
-        .limit(1)
-    ).length === 1
-  );
+  return !!(await getOwnedConnection(app, userId, id));
 }
 function listModels(app: FastifyInstance, userId: string) {
   return app.db
@@ -932,6 +963,8 @@ function listModels(app: FastifyInstance, userId: string) {
     .from(upstreamModels)
     .innerJoin(providerConnections, eq(providerConnections.id, upstreamModels.providerConnectionId))
     .leftJoin(connectionTokens, eq(connectionTokens.id, upstreamModels.tokenId))
+    .leftJoin(modelBindings, eq(modelBindings.id, upstreamModels.bindingId))
+    .leftJoin(cliproxyAccounts, eq(cliproxyAccounts.id, modelBindings.cliproxyAccountId))
     .where(eq(upstreamModels.userId, userId))
     .orderBy(desc(upstreamModels.createdAt));
 }
@@ -941,6 +974,8 @@ async function getModel(app: FastifyInstance, userId: string, id: string) {
     .from(upstreamModels)
     .innerJoin(providerConnections, eq(providerConnections.id, upstreamModels.providerConnectionId))
     .leftJoin(connectionTokens, eq(connectionTokens.id, upstreamModels.tokenId))
+    .leftJoin(modelBindings, eq(modelBindings.id, upstreamModels.bindingId))
+    .leftJoin(cliproxyAccounts, eq(cliproxyAccounts.id, modelBindings.cliproxyAccountId))
     .where(and(eq(upstreamModels.id, id), eq(upstreamModels.userId, userId)))
     .limit(1);
   return model;

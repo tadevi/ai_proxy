@@ -1,14 +1,98 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { and, desc, eq, inArray } from 'drizzle-orm';
-import { cliproxyAccounts, modelBindings, upstreamModels } from '@gateway/db';
-import { isUniqueViolation } from '../security.js';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import {
+  cliproxyAccounts,
+  connectionTokens,
+  modelBindings,
+  providerConnections,
+  upstreamModels,
+} from '@gateway/db';
+import { encryptCredential, isUniqueViolation, maskApiKey } from '../security.js';
 
 // CLIProxyAPI's own provider names in the auth file's "type" field — Gemini auth files
 // use "antigravity" (its internal name for Gemini/Antigravity), not "gemini".
 const KNOWN_PROVIDERS = new Set(['codex', 'claude', 'antigravity']);
+const MANAGED_CONNECTION_NAME = 'CLIProxyAPI';
+const MANAGED_TOKEN_NAME = 'Gateway-managed CLIProxy credential';
 
 type Json = Record<string, unknown>;
+
+type CliproxyConfig = { baseUrl: string; managementKey: string };
+
+function normalizedBaseUrl(value: string) {
+  return value.replace(/\/$/, '');
+}
+
+async function addProxyApiKey(cfg: CliproxyConfig, apiKey: string) {
+  // PATCH appends when its `old` value is not in CLIProxyAPI's current api-keys list.
+  // It avoids a read/replace race with management-panel edits or another provision request.
+  const response = await fetch(`${normalizedBaseUrl(cfg.baseUrl)}/v0/management/api-keys`, {
+    method: 'PATCH',
+    headers: {
+      authorization: `Bearer ${cfg.managementKey}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ old: '', new: apiKey }),
+  });
+  if (response.ok) return;
+  const text = await response.text().catch(() => '');
+  throw new Error(`CLIProxyAPI API-key provisioning failed: ${text || response.statusText}`);
+}
+
+async function removeProxyApiKey(cfg: CliproxyConfig, apiKey: string) {
+  await fetch(
+    `${normalizedBaseUrl(cfg.baseUrl)}/v0/management/api-keys?value=${encodeURIComponent(apiKey)}`,
+    { method: 'DELETE', headers: { authorization: `Bearer ${cfg.managementKey}` } },
+  ).catch(() => {});
+}
+
+async function ensureManagedConnection(app: FastifyInstance, userId: string, cfg: CliproxyConfig) {
+  return app.db.transaction(async (tx) => {
+    // A user can upload two auth files concurrently. Serialize provisioning per user so
+    // that both uploads share one CLIProxy connection and inference credential.
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${`cliproxy-connection:${userId}`}))`,
+    );
+
+    const connections = await tx
+      .select()
+      .from(providerConnections)
+      .where(eq(providerConnections.userId, userId));
+    const existing = connections.find(
+      (connection) => normalizedBaseUrl(connection.baseUrl) === normalizedBaseUrl(cfg.baseUrl),
+    );
+    if (existing) return existing;
+
+    const apiKey = `cpx_${randomBytes(32).toString('base64url')}`;
+    await addProxyApiKey(cfg, apiKey);
+    try {
+      const [connection] = await tx
+        .insert(providerConnections)
+        .values({
+          userId,
+          displayName: MANAGED_CONNECTION_NAME,
+          baseUrl: normalizedBaseUrl(cfg.baseUrl),
+        })
+        .returning();
+      const encrypted = encryptCredential(apiKey, app.config.CREDENTIAL_ENCRYPTION_KEY);
+      await tx.insert(connectionTokens).values({
+        userId,
+        connectionId: connection!.id,
+        name: MANAGED_TOKEN_NAME,
+        keyPreview: maskApiKey(apiKey),
+        systemManaged: true,
+        ...encrypted,
+      });
+      return connection!;
+    } catch (error) {
+      // The API key was written remotely before the local transaction could fail.
+      // Remove it best-effort so it cannot become an orphaned inference credential.
+      await removeProxyApiKey(cfg, apiKey);
+      throw error;
+    }
+  });
+}
 
 // Codex/Claude/Gemini OAuth account management for a private CLIProxyAPI instance
 // (see internal/api/handlers/management/auth_files.go). Every account we register gets
@@ -124,6 +208,20 @@ export async function cliproxyRoutes(app: FastifyInstance) {
       return reply
         .code(502)
         .send({ error: `CLIProxyAPI prefix assignment failed: ${text || patchRes.statusText}` });
+    }
+
+    try {
+      // The first successful auth upload provisions one private inference credential for
+      // this user. It is random, registered with CLIProxyAPI through the management API,
+      // encrypted in the database, and never returned to dashboard clients.
+      await ensureManagedConnection(app, req.dashboardUser!.id, cfg);
+    } catch (error) {
+      // Do not leave a remote auth file behind when its local account cannot be provisioned.
+      await fetch(`${cfg.baseUrl}/v0/management/auth-files?name=${encodeURIComponent(fileName)}`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${cfg.managementKey}` },
+      }).catch(() => {});
+      throw error;
     }
 
     if (isReplace) {

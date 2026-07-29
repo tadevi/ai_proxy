@@ -20,6 +20,8 @@ type Log = {
   requestId: string;
   incomingModel: string;
   resolvedUpstreamModel?: string;
+  cliproxyAccountLabel?: string | null;
+  cliproxyAccountPrefix?: string | null;
   apiFormat?: string;
   status: number;
   latencyMs: number;
@@ -58,6 +60,10 @@ function resolvedModelLabel(value?: string) {
   return value?.replace(/\s+\([^()]+\s+@\s+[^()]+\)$/, '') ?? '—';
 }
 
+function resolvedModelDetails(value?: string) {
+  return value?.match(/\s+\(([^()]+\s+@\s+[^()]+)\)$/)?.[1];
+}
+
 function tokenMetrics(log: Log) {
   const input = log.inputTokens ?? 0;
   const cache = log.cacheInputTokens ?? 0;
@@ -82,20 +88,10 @@ function tokenTooltip(log: Log) {
 export function Logs() {
   const [selectedError, setSelectedError] = useState<Log | null>(null);
   const [cursorHistory, setCursorHistory] = useState<string[]>([]);
-  const [filters, setFilters] = useState({
-    requestId: '',
-    model: '',
-    status: '',
-    from: '',
-    to: '',
-  });
-  const search = new URLSearchParams(
-    Object.entries(filters).filter(([, value]) => value) as Array<[string, string]>,
-  );
   const cursor = cursorHistory.at(-1);
-  if (cursor) search.set('cursor', cursor);
+  const search = new URLSearchParams(cursor ? { cursor } : undefined);
   const logs = useQuery({
-    queryKey: ['logs', filters, cursor],
+    queryKey: ['logs', cursor],
     queryFn: () => api<LogPage>(`/api/logs?${search}`),
     refetchInterval: 10000,
   });
@@ -106,65 +102,6 @@ export function Logs() {
         <p className="muted mt-1">
           Request bodies are never stored; sanitized provider error details may be retained.
         </p>
-      </div>
-      <div className="card mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <input
-          aria-label="Filter by request ID"
-          className="input"
-          placeholder="Request ID"
-          value={filters.requestId}
-          onChange={(event) => {
-            setFilters({ ...filters, requestId: event.target.value });
-            setCursorHistory([]);
-          }}
-        />
-        <input
-          aria-label="Filter by model"
-          className="input"
-          placeholder="Model"
-          value={filters.model}
-          onChange={(event) => {
-            setFilters({ ...filters, model: event.target.value });
-            setCursorHistory([]);
-          }}
-        />
-        <select
-          aria-label="Filter by status"
-          className="input"
-          value={filters.status}
-          onChange={(event) => {
-            setFilters({ ...filters, status: event.target.value });
-            setCursorHistory([]);
-          }}
-        >
-          <option value="">All statuses</option>
-          <option value="200">200</option>
-          <option value="400">400</option>
-          <option value="401">401</option>
-          <option value="429">429</option>
-          <option value="500">500</option>
-          <option value="502">502</option>
-        </select>
-        <input
-          aria-label="Requests from"
-          className="input"
-          type="datetime-local"
-          value={filters.from}
-          onChange={(event) => {
-            setFilters({ ...filters, from: event.target.value });
-            setCursorHistory([]);
-          }}
-        />
-        <input
-          aria-label="Requests to"
-          className="input"
-          type="datetime-local"
-          value={filters.to}
-          onChange={(event) => {
-            setFilters({ ...filters, to: event.target.value });
-            setCursorHistory([]);
-          }}
-        />
       </div>
       <div className="card overflow-x-auto p-0">
         <table className="w-full text-left text-sm">
@@ -196,8 +133,20 @@ export function Logs() {
                 <td className="p-3">
                   {l.incomingModel}
                   <br />
-                  <span className="text-zinc-500" title={l.resolvedUpstreamModel}>
+                  <span
+                    className="text-zinc-500"
+                    title={
+                      l.cliproxyAccountLabel || l.cliproxyAccountPrefix
+                        ? (l.cliproxyAccountLabel ?? l.cliproxyAccountPrefix ?? undefined)
+                        : resolvedModelDetails(l.resolvedUpstreamModel)
+                    }
+                  >
                     {resolvedModelLabel(l.resolvedUpstreamModel)}
+                    {(l.cliproxyAccountLabel || l.cliproxyAccountPrefix) && (
+                      <span className="ml-1 text-zinc-600">
+                        · {l.cliproxyAccountLabel ?? l.cliproxyAccountPrefix}
+                      </span>
+                    )}
                   </span>
                 </td>
                 <td className="p-3">

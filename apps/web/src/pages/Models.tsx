@@ -141,7 +141,7 @@ export function Models() {
               <tr>
                 <th className="px-4 py-2.5 font-medium">Model</th>
                 <th className="px-4 py-2.5 font-medium">Connection</th>
-                <th className="px-4 py-2.5 font-medium">Token</th>
+                <th className="px-4 py-2.5 font-medium">Credential / account</th>
                 <th className="px-4 py-2.5 font-medium">Format</th>
                 <th className="px-4 py-2.5 font-medium">Status</th>
                 <th className="px-4 py-2.5 font-medium text-right">Tokens (in/out)</th>
@@ -165,7 +165,9 @@ export function Models() {
                       </div>
                     </td>
                     <td className="px-4 py-2.5 text-zinc-400">{m.providerConnectionName}</td>
-                    <td className="px-4 py-2.5 text-zinc-400">{m.tokenName ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-zinc-400">
+                      {m.cliproxyAccountLabel ?? m.cliproxyAccountPrefix ?? m.tokenName ?? '—'}
+                    </td>
                     <td className="px-4 py-2.5">
                       <FormatChip apiFormat={m.apiFormat} />
                     </td>
@@ -242,13 +244,13 @@ function StatusBadge({ model }: { model: Model }) {
   if (model.tokenEnabled === false)
     return (
       <span className="inline-flex items-center gap-1.5 text-xs text-red-400">
-        <span className="h-2 w-2 rounded-full bg-red-400" /> Token disabled
+        <span className="h-2 w-2 rounded-full bg-red-400" /> Credential disabled
       </span>
     );
   if (cooling)
     return (
       <span className="inline-flex items-center gap-1.5 text-xs text-amber-400">
-        <span className="h-2 w-2 rounded-full bg-amber-400" /> Token cooling down
+        <span className="h-2 w-2 rounded-full bg-amber-400" /> Credential cooling down
       </span>
     );
   return (
@@ -312,10 +314,12 @@ function ModelCard({
 
         <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[13px]">
           <span className="text-zinc-400">{m.providerConnectionName}</span>
-          {m.tokenName && (
+          {(m.cliproxyAccountLabel ?? m.cliproxyAccountPrefix ?? m.tokenName) && (
             <>
               <span className="text-zinc-600">·</span>
-              <span className="text-zinc-400">{m.tokenName}</span>
+              <span className="text-zinc-400">
+                {m.cliproxyAccountLabel ?? m.cliproxyAccountPrefix ?? m.tokenName}
+              </span>
             </>
           )}
         </div>
@@ -340,12 +344,12 @@ function ModelCard({
           )}
           {m.tokenEnabled === false && (
             <span className="rounded-full bg-red-950 px-2.5 py-0.5 text-xs font-medium text-red-400">
-              Token disabled
+              Credential disabled
             </span>
           )}
           {cooling && (
             <span className="rounded-full bg-amber-950 px-2.5 py-0.5 text-xs font-medium text-amber-400">
-              Token cooling down until {new Date(m.tokenCooldownUntil!).toLocaleTimeString()}
+              Credential cooling down until {new Date(m.tokenCooldownUntil!).toLocaleTimeString()}
             </span>
           )}
           <FormatChip apiFormat={m.apiFormat} />

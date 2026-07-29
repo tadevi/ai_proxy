@@ -127,6 +127,13 @@
       "when": 1785348000000,
       "tag": "0017_cliproxy_model_cooldown",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1785351600000,
+      "tag": "0018_managed_cliproxy_credentials",
+      "breakpoints": true
     }
   ]
 }

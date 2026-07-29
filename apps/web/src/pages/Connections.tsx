@@ -49,7 +49,9 @@ export function Connections() {
   const tokens = useQuery({
     queryKey: ['tokens', expandedId],
     queryFn: () => api<ConnectionToken[]>(`/api/connections/${expandedId}/tokens`),
-    enabled: !!expandedId,
+    enabled:
+      !!expandedId &&
+      !connections.data?.find((connection) => connection.id === expandedId)?.isCliproxy,
   });
 
   const bindings = useQuery({
@@ -325,8 +327,11 @@ export function Connections() {
               {/* Expandable sections */}
               {isExpanded && (
                 <div className="border-t border-zinc-800 bg-zinc-950/50 p-5 space-y-5">
-                  {/* Tokens section */}
-                  <details open>
+                  {/* CLIProxy credentials are server-managed and intentionally hidden. */}
+                  {!connection.isCliproxy && (
+                    <>
+                      {/* Tokens section */}
+                      <details open>
                     <summary className="flex cursor-pointer items-center justify-between text-sm font-medium text-zinc-300 hover:text-white">
                       <span>Tokens ({tokens.data?.length ?? 0})</span>
                     </summary>
@@ -413,7 +418,9 @@ export function Connections() {
                     >
                       + Add token
                     </button>
-                  </details>
+                      </details>
+                    </>
+                  )}
 
                   {/* Bindings section */}
                   <details open>
