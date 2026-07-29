@@ -26,6 +26,7 @@ type Log = {
   timeToFirstTokenMs?: number;
   inputTokens?: number;
   outputTokens?: number;
+  cacheInputTokens?: number;
   fallbackCount: number;
   errorCategory?: string;
   providerError?: Record<string, unknown>;
@@ -40,6 +41,42 @@ type LogPage = {
 
 function formatLatencySeconds(milliseconds: number) {
   return `${(milliseconds / 1_000).toFixed(1)}s`;
+}
+
+function formatThinking(config?: Record<string, unknown> | null) {
+  if (!config) return '—';
+  if (typeof config.effort === 'string')
+    return config.effort.charAt(0).toUpperCase() + config.effort.slice(1);
+  if (typeof config.budgetTokens === 'number') return `Budget ${formatTokens(config.budgetTokens)}`;
+  if (config.enabled === false || config.type === 'disabled') return 'Disabled';
+  if (config.type === 'adaptive') return 'Adaptive';
+  if (config.enabled === true || config.type === 'enabled') return 'Enabled';
+  return 'Configured';
+}
+
+function resolvedModelLabel(value?: string) {
+  return value?.replace(/\s+\([^()]+\s+@\s+[^()]+\)$/, '') ?? '—';
+}
+
+function tokenMetrics(log: Log) {
+  const input = log.inputTokens ?? 0;
+  const cache = log.cacheInputTokens ?? 0;
+  const isAnthropic = log.apiFormat === 'anthropic_compatible';
+  return {
+    totalInput: isAnthropic ? input + cache : input,
+    nonCacheInput: isAnthropic ? input : Math.max(0, input - cache),
+    cacheInput: cache,
+  };
+}
+
+function tokenTooltip(log: Log) {
+  const metrics = tokenMetrics(log);
+  return [
+    `Total input: ${formatTokens(metrics.totalInput)}`,
+    `Non-cache: ${formatTokens(metrics.nonCacheInput)}`,
+    `Cache: ${formatTokens(metrics.cacheInput)}`,
+    `Output: ${formatTokens(log.outputTokens)}`,
+  ].join('\n');
 }
 
 export function Logs() {
@@ -140,7 +177,7 @@ export function Logs() {
                 'Format',
                 'Status',
                 'Latency',
-                'Tokens',
+                'Tokens (in/out)',
                 'Thinking',
                 'Fallbacks',
                 'Error',
@@ -159,13 +196,21 @@ export function Logs() {
                 <td className="p-3">
                   {l.incomingModel}
                   <br />
-                  <span className="text-zinc-500">{l.resolvedUpstreamModel ?? '—'}</span>
+                  <span className="text-zinc-500" title={l.resolvedUpstreamModel}>
+                    {resolvedModelLabel(l.resolvedUpstreamModel)}
+                  </span>
                 </td>
-                <td className="p-3">{l.apiFormat === 'anthropic_compatible' ? 'Anthropic' : l.apiFormat === 'openai_compatible' ? 'OpenAI' : '—'}</td>
+                <td className="p-3">
+                  {l.apiFormat === 'anthropic_compatible'
+                    ? 'Anthropic'
+                    : l.apiFormat === 'openai_compatible'
+                      ? 'OpenAI'
+                      : '—'}
+                </td>
                 <td className="p-3">{l.status}</td>
                 <td className="p-3">{formatLatencySeconds(l.latencyMs)}</td>
-                <td className="p-3">
-                  {formatTokens(l.inputTokens)} / {formatTokens(l.outputTokens)}
+                <td className="p-3" title={tokenTooltip(l)}>
+                  {formatTokens(tokenMetrics(l).totalInput)} / {formatTokens(l.outputTokens)}
                 </td>
                 <td className="p-3">
                   {l.thinkingConfig ? (
@@ -175,7 +220,7 @@ export function Logs() {
                       title={JSON.stringify(l.thinkingConfig)}
                       type="button"
                     >
-                      {String(l.thinkingConfig.effort ?? l.thinkingConfig.type ?? 'configured')}
+                      {formatThinking(l.thinkingConfig)}
                     </button>
                   ) : (
                     <span className="text-zinc-600">—</span>
@@ -272,11 +317,7 @@ export function Logs() {
               </button>
             </div>
             <pre className="mt-4 max-h-[60vh] overflow-auto rounded-lg bg-zinc-950 p-4 text-xs text-zinc-200">
-              {JSON.stringify(
-                selectedError.providerError ?? selectedError.thinkingConfig,
-                null,
-                2,
-              )}
+              {JSON.stringify(selectedError.providerError ?? selectedError.thinkingConfig, null, 2)}
             </pre>
           </section>
         </div>

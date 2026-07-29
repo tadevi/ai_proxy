@@ -3,6 +3,7 @@ import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import staticPlugin from '@fastify/static';
+import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { ZodError } from 'zod';
@@ -21,7 +22,9 @@ export async function buildApp(config: Config) {
     logger: false,
     disableRequestLogging: true,
     bodyLimit: 10 * 1024 * 1024,
-    requestIdHeader: 'x-request-id',
+    // Always generate a compact internal trace ID; do not let clients choose or reuse it.
+    requestIdHeader: false,
+    genReqId: () => randomBytes(6).toString('base64url'),
   });
   const { db, pool } = createDb(config.DATABASE_URL, databaseTls(config));
   app.decorate('db', db);

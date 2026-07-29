@@ -75,6 +75,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function thinkingLogConfig(request: AnthropicRequest) {
+  const normalized = normalizeThinking(request.thinking, request.output_config);
+  const raw = isRecord(request.thinking) ? request.thinking : undefined;
+  const type = typeof raw?.type === 'string' ? raw.type : undefined;
+  if (!normalized.enabled && !type) return null;
+  return {
+    enabled: normalized.enabled,
+    ...(type ? { type } : {}),
+    ...(normalized.effort ? { effort: normalized.effort } : {}),
+    ...(normalized.budgetTokens ? { budgetTokens: normalized.budgetTokens } : {}),
+  };
+}
+
 function isCliproxyCredentialCooldown(failure: UpstreamFailure) {
   const message = failure.providerError?.response?.message;
   return (
@@ -674,7 +687,7 @@ async function handleMessage(
       status: 400,
       latencyMs: Date.now() - started,
       errorCategory: 'no_eligible_route',
-      thinkingConfig: request.thinking ?? null,
+      thinkingConfig: thinkingLogConfig(request),
       skippedRoutes: skipped,
     });
     return reply
@@ -726,7 +739,7 @@ async function handleMessage(
             inputTokens: result.usage?.inputTokens,
             outputTokens: result.usage?.outputTokens,
             cacheInputTokens: result.usage?.cacheInputTokens,
-            thinkingConfig: request.thinking ?? null,
+            thinkingConfig: thinkingLogConfig(request),
             fallbackCount: index,
             skippedRoutes: skipped,
           });
@@ -743,7 +756,7 @@ async function handleMessage(
             latencyMs: Date.now() - started,
             fallbackCount: index,
             errorCategory: 'stream_interrupted',
-            thinkingConfig: request.thinking ?? null,
+            thinkingConfig: thinkingLogConfig(request),
             skippedRoutes: skipped,
           });
         }
@@ -766,7 +779,7 @@ async function handleMessage(
         inputTokens: usage?.input_tokens,
         outputTokens: usage?.output_tokens,
         cacheInputTokens: cacheTokens || undefined,
-        thinkingConfig: request.thinking ?? null,
+        thinkingConfig: thinkingLogConfig(request),
         fallbackCount: index,
         skippedRoutes: skipped,
       });
