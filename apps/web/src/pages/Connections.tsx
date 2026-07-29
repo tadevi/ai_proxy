@@ -289,7 +289,14 @@ export function Connections() {
                 </button>
                 <div className="min-w-0 flex-1">
                   <h2 className="font-medium">{connection.displayName}</h2>
-                  <p className="muted mt-0.5 truncate">{connection.baseUrl}</p>
+                  <a
+            className="muted mt-0.5 truncate hover:text-zinc-300 underline decoration-zinc-700 underline-offset-2"
+            href={connection.baseUrl}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            {connection.baseUrl}
+          </a>
                 </div>
                 <div className="flex shrink-0 gap-2">
                   <button
