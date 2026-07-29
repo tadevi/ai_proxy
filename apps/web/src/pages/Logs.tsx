@@ -37,6 +37,11 @@ type LogPage = {
   total: number;
   nextCursor: string | null;
 };
+
+function formatLatencySeconds(milliseconds: number) {
+  return `${(milliseconds / 1_000).toFixed(1)}s`;
+}
+
 export function Logs() {
   const [selectedError, setSelectedError] = useState<Log | null>(null);
   const [cursorHistory, setCursorHistory] = useState<string[]>([]);
@@ -158,7 +163,7 @@ export function Logs() {
                 </td>
                 <td className="p-3">{l.apiFormat === 'anthropic_compatible' ? 'Anthropic' : l.apiFormat === 'openai_compatible' ? 'OpenAI' : '—'}</td>
                 <td className="p-3">{l.status}</td>
-                <td className="p-3">{l.latencyMs}ms</td>
+                <td className="p-3">{formatLatencySeconds(l.latencyMs)}</td>
                 <td className="p-3">
                   {formatTokens(l.inputTokens)} / {formatTokens(l.outputTokens)}
                 </td>
