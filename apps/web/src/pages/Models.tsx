@@ -50,9 +50,15 @@ export function Models() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['models'] }),
   });
 
-  const filtered = (models.data ?? []).filter(
-    (m) => !filterConnection || m.providerConnectionId === filterConnection,
-  );
+  // Keep the highest-volume models first whether viewing every connection or one selected connection.
+  // A deterministic tie-breaker avoids rows shifting when usage is equal or not yet available.
+  const filtered = (models.data ?? [])
+    .filter((m) => !filterConnection || m.providerConnectionId === filterConnection)
+    .sort((a, b) => {
+      const inputDifference = Number(usageByModel.get(b.id)?.inputTokens ?? 0) -
+        Number(usageByModel.get(a.id)?.inputTokens ?? 0);
+      return inputDifference || a.displayName.localeCompare(b.displayName) || a.id.localeCompare(b.id);
+    });
   const byConnection = new Map<string, Model[]>();
   for (const m of filtered) {
     const list = byConnection.get(m.providerConnectionId) ?? [];
