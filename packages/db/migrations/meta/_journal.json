@@ -106,6 +106,13 @@
       "when": 1784781561630,
       "tag": "0014_sleepy_silver_samurai",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1785340800000,
+      "tag": "0015_binding_cliproxy_account",
+      "breakpoints": true
     }
   ]
 }

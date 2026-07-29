@@ -140,13 +140,25 @@ export const modelBindings = pgTable(
       .references(() => providerConnections.id, { onDelete: 'cascade' }),
     apiFormat: apiFormat('api_format').notNull(),
     providerBasePath: text('provider_base_path').default('').notNull(),
+    // Exact OAuth account selected for this binding on a shared CLIProxyAPI connection.
+    // Null keeps bindings to ordinary provider connections account-independent.
+    cliproxyAccountId: uuid('cliproxy_account_id').references(() => cliproxyAccounts.id, {
+      onDelete: 'cascade',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
     index('bindings_user_idx').on(t.userId),
     index('bindings_connection_idx').on(t.connectionId),
-    unique('bindings_connection_preset_format_unique').on(t.connectionId, t.presetId, t.apiFormat),
+    // A normal connection may bind each preset once; a shared CLIProxy connection may bind it
+    // once per exact OAuth account.
+    uniqueIndex('bindings_connection_preset_format_no_account_unique')
+      .on(t.connectionId, t.presetId, t.apiFormat)
+      .where(sql`${t.cliproxyAccountId} IS NULL`),
+    uniqueIndex('bindings_connection_preset_format_account_unique')
+      .on(t.connectionId, t.presetId, t.apiFormat, t.cliproxyAccountId)
+      .where(sql`${t.cliproxyAccountId} IS NOT NULL`),
   ],
 );
 

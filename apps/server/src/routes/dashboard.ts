@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import {
+  cliproxyAccounts,
   connectionTokens,
   gatewayKeys,
   mappingRoutes,
@@ -317,7 +318,9 @@ export async function dashboardRoutes(app: FastifyInstance) {
       return reply.code(201).send(token);
     } catch (error) {
       if (isUniqueViolation(error))
-        return reply.code(409).send({ error: 'A token with this name already exists on this connection.' });
+        return reply
+          .code(409)
+          .send({ error: 'A token with this name already exists on this connection.' });
       throw error;
     }
   });
@@ -360,10 +363,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
     await app.db
       .delete(upstreamModels)
       .where(
-        and(
-          eq(upstreamModels.tokenId, tokenId),
-          eq(upstreamModels.userId, req.dashboardUser!.id),
-        ),
+        and(eq(upstreamModels.tokenId, tokenId), eq(upstreamModels.userId, req.dashboardUser!.id)),
       );
     const [token] = await app.db
       .delete(connectionTokens)
@@ -387,6 +387,9 @@ export async function dashboardRoutes(app: FastifyInstance) {
     connectionId: modelBindings.connectionId,
     apiFormat: modelBindings.apiFormat,
     providerBasePath: modelBindings.providerBasePath,
+    cliproxyAccountId: modelBindings.cliproxyAccountId,
+    cliproxyAccountLabel: cliproxyAccounts.label,
+    cliproxyAccountPrefix: cliproxyAccounts.prefix,
     createdAt: modelBindings.createdAt,
     updatedAt: modelBindings.updatedAt,
   };
@@ -401,11 +404,15 @@ export async function dashboardRoutes(app: FastifyInstance) {
         connectionName: providerConnections.displayName,
         apiFormat: modelBindings.apiFormat,
         providerBasePath: modelBindings.providerBasePath,
+        cliproxyAccountId: modelBindings.cliproxyAccountId,
+        cliproxyAccountLabel: cliproxyAccounts.label,
+        cliproxyAccountPrefix: cliproxyAccounts.prefix,
         createdAt: modelBindings.createdAt,
       })
       .from(modelBindings)
       .innerJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
       .innerJoin(providerConnections, eq(providerConnections.id, modelBindings.connectionId))
+      .leftJoin(cliproxyAccounts, eq(cliproxyAccounts.id, modelBindings.cliproxyAccountId))
       .where(eq(modelBindings.userId, req.dashboardUser!.id))
       .orderBy(desc(modelBindings.createdAt)),
   );
@@ -417,6 +424,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
       .select(safeBinding)
       .from(modelBindings)
       .innerJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
+      .leftJoin(cliproxyAccounts, eq(cliproxyAccounts.id, modelBindings.cliproxyAccountId))
       .where(
         and(
           eq(modelBindings.connectionId, connectionId),
@@ -432,21 +440,58 @@ export async function dashboardRoutes(app: FastifyInstance) {
     presetId: string,
     apiFormatOverride: 'openai_compatible' | 'anthropic_compatible' | undefined,
     providerBasePath: string,
+    cliproxyAccountId: string | null | undefined,
   ) {
     const [preset] = await app.db
       .select()
       .from(modelPresets)
       .where(
-        and(eq(modelPresets.id, presetId), or(isNull(modelPresets.userId), eq(modelPresets.userId, userId))),
+        and(
+          eq(modelPresets.id, presetId),
+          or(isNull(modelPresets.userId), eq(modelPresets.userId, userId)),
+        ),
       )
       .limit(1);
     if (!preset) throw new Error('Preset not found');
+    const [connection] = await app.db
+      .select({ baseUrl: providerConnections.baseUrl })
+      .from(providerConnections)
+      .where(and(eq(providerConnections.id, connectionId), eq(providerConnections.userId, userId)))
+      .limit(1);
+    if (!connection) throw new Error('Provider connection not found');
+
+    const isCliproxyConnection =
+      !!app.config.CLIPROXY_BASE_URL &&
+      connection.baseUrl.replace(/\/$/, '') === app.config.CLIPROXY_BASE_URL.replace(/\/$/, '');
+    if (isCliproxyConnection && !cliproxyAccountId)
+      throw new Error('Select a CLIProxy account for this binding');
+    if (!isCliproxyConnection && cliproxyAccountId)
+      throw new Error('CLIProxy accounts can only be used with the CLIProxyAPI connection');
+
+    const [cliproxyAccount] = cliproxyAccountId
+      ? await app.db
+          .select({ id: cliproxyAccounts.id, prefix: cliproxyAccounts.prefix })
+          .from(cliproxyAccounts)
+          .where(
+            and(eq(cliproxyAccounts.id, cliproxyAccountId), eq(cliproxyAccounts.userId, userId)),
+          )
+          .limit(1)
+      : [];
+    if (cliproxyAccountId && !cliproxyAccount) throw new Error('CLIProxy account not found');
+
     const apiFormat = apiFormatOverride ?? preset.apiFormat;
     let inserted: typeof modelBindings.$inferSelect | undefined;
     try {
       [inserted] = await app.db
         .insert(modelBindings)
-        .values({ userId, presetId, connectionId, apiFormat, providerBasePath })
+        .values({
+          userId,
+          presetId,
+          connectionId,
+          apiFormat,
+          providerBasePath,
+          cliproxyAccountId: cliproxyAccount?.id ?? null,
+        })
         .returning();
     } catch (error) {
       if (isUniqueViolation(error))
@@ -472,6 +517,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
       preset,
       apiFormat,
       providerBasePath,
+      cliproxyAccount?.prefix,
     );
     return binding;
   }
@@ -491,6 +537,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
           presetId,
           input.apiFormat,
           input.providerBasePath,
+          input.cliproxyAccountId,
         ),
       ),
     );
@@ -563,7 +610,9 @@ export async function dashboardRoutes(app: FastifyInstance) {
       return reply.code(201).send((await getModel(app, req.dashboardUser!.id, created!.id))!);
     } catch (error) {
       if (isUniqueViolation(error))
-        return reply.code(409).send({ error: 'This upstream model ID already exists on this connection.' });
+        return reply
+          .code(409)
+          .send({ error: 'This upstream model ID already exists on this connection.' });
       throw error;
     }
   });
@@ -651,6 +700,8 @@ export async function dashboardRoutes(app: FastifyInstance) {
         presetDisplayName: modelPresets.displayName,
         presetUpstreamModelId: modelPresets.upstreamModelId,
         providerConnectionName: providerConnections.displayName,
+        cliproxyAccountLabel: cliproxyAccounts.label,
+        cliproxyAccountPrefix: cliproxyAccounts.prefix,
         apiFormat: modelBindings.apiFormat,
       })
       .from(mappings)
@@ -658,6 +709,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
       .leftJoin(modelBindings, eq(modelBindings.id, mappingRoutes.bindingId))
       .leftJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
       .leftJoin(providerConnections, eq(providerConnections.id, modelBindings.connectionId))
+      .leftJoin(cliproxyAccounts, eq(cliproxyAccounts.id, modelBindings.cliproxyAccountId))
       .where(eq(mappings.userId, req.dashboardUser!.id))
       .orderBy(asc(mappingRoutes.position));
     return aliases.map((alias) => ({
@@ -919,13 +971,24 @@ async function createUpstreamModelsForToken(
       .where(eq(modelPresets.id, binding.presetId))
       .limit(1);
     if (!preset) continue;
+    const [cliproxyAccount] = binding.cliproxyAccountId
+      ? await app.db
+          .select({ prefix: cliproxyAccounts.prefix })
+          .from(cliproxyAccounts)
+          .where(eq(cliproxyAccounts.id, binding.cliproxyAccountId))
+          .limit(1)
+      : [];
+    // A deleted account cascades its binding before this path can run; skip defensively.
+    if (binding.cliproxyAccountId && !cliproxyAccount) continue;
 
     const displayName = `${preset.displayName} (${token.name} @ ${connection.displayName})`;
     try {
       await app.db.insert(upstreamModels).values({
         userId,
         displayName,
-        upstreamModelId: preset.upstreamModelId,
+        upstreamModelId: cliproxyAccount
+          ? `${cliproxyAccount.prefix}/${preset.upstreamModelId}`
+          : preset.upstreamModelId,
         providerConnectionId: connectionId,
         bindingId: binding.id,
         tokenId,
@@ -947,11 +1010,20 @@ async function createUpstreamModelsForBinding(
   userId: string,
   connectionId: string,
   bindingId: string,
-  preset: { displayName: string; upstreamModelId: string; apiFormat: string; supportsImages: string; supportsReasoning: string; maxOutputTokens: number | null },
+  preset: {
+    displayName: string;
+    upstreamModelId: string;
+    apiFormat: string;
+    supportsImages: string;
+    supportsReasoning: string;
+    maxOutputTokens: number | null;
+  },
   apiFormat: string,
   providerBasePath: string,
+  cliproxyAccountPrefix: string | undefined,
 ) {
-  // Get the connection for display name
+  // The prefix comes from the exact account selected on the binding, never from a preset
+  // or a provider-wide lookup. This keeps multiple accounts of one provider isolated.
   const [connection] = await app.db
     .select({ displayName: providerConnections.displayName })
     .from(providerConnections)
@@ -959,15 +1031,16 @@ async function createUpstreamModelsForBinding(
     .limit(1);
   if (!connection) return;
 
+  const resolvedModelId = cliproxyAccountPrefix
+    ? `${cliproxyAccountPrefix}/${preset.upstreamModelId}`
+    : preset.upstreamModelId;
+
   // Get all enabled tokens on this connection
   const tokens = await app.db
     .select({ id: connectionTokens.id, name: connectionTokens.name })
     .from(connectionTokens)
     .where(
-      and(
-        eq(connectionTokens.connectionId, connectionId),
-        eq(connectionTokens.enabled, true),
-      ),
+      and(eq(connectionTokens.connectionId, connectionId), eq(connectionTokens.enabled, true)),
     );
 
   for (const token of tokens) {
@@ -976,7 +1049,7 @@ async function createUpstreamModelsForBinding(
       await app.db.insert(upstreamModels).values({
         userId,
         displayName,
-        upstreamModelId: preset.upstreamModelId,
+        upstreamModelId: resolvedModelId,
         providerConnectionId: connectionId,
         bindingId,
         tokenId: token.id,

@@ -51,6 +51,9 @@ export type ModelBinding = {
   presetUpstreamModelId: string;
   apiFormat: string;
   providerBasePath: string;
+  cliproxyAccountId?: string | null;
+  cliproxyAccountLabel?: string | null;
+  cliproxyAccountPrefix?: string | null;
   createdAt: string;
 };
 export type Model = {
@@ -87,6 +90,8 @@ export type MappingRoute = {
   presetDisplayName: string;
   presetUpstreamModelId: string;
   providerConnectionName: string;
+  cliproxyAccountLabel?: string | null;
+  cliproxyAccountPrefix?: string | null;
   apiFormat: string;
 };
 export type Mapping = { alias: string; routes: MappingRoute[] };

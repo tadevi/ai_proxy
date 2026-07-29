@@ -1,7 +1,14 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type ProviderConnection, type ConnectionToken, type ModelBinding, type Preset } from '../api';
+import {
+  api,
+  type CliproxyAccount,
+  type ProviderConnection,
+  type ConnectionToken,
+  type ModelBinding,
+  type Preset,
+} from '../api';
 import { latestErrorMessage } from '../format';
 
 type ConnectionForm = {
@@ -55,6 +62,10 @@ export function Connections() {
     queryKey: ['presets'],
     queryFn: () => api<Preset[]>('/api/presets'),
   });
+  const cliproxyAccounts = useQuery({
+    queryKey: ['cliproxy-accounts'],
+    queryFn: () => api<CliproxyAccount[]>('/api/cliproxy/accounts'),
+  });
 
   const saveConnection = useMutation({
     mutationFn: (form: ConnectionForm) =>
@@ -89,7 +100,15 @@ export function Connections() {
   });
 
   const addToken = useMutation({
-    mutationFn: ({ connectionId, name, apiKey }: { connectionId: string; name: string; apiKey: string }) =>
+    mutationFn: ({
+      connectionId,
+      name,
+      apiKey,
+    }: {
+      connectionId: string;
+      name: string;
+      apiKey: string;
+    }) =>
       api(`/api/connections/${connectionId}/tokens`, {
         method: 'POST',
         body: JSON.stringify({ name, apiKey }),
@@ -136,11 +155,13 @@ export function Connections() {
       presetIds,
       apiFormat,
       providerBasePath,
+      cliproxyAccountId,
     }: {
       connectionId: string;
       presetIds: string[];
       apiFormat?: string;
       providerBasePath?: string;
+      cliproxyAccountId?: string;
     }) => {
       const result = await api<{
         bound: unknown[];
@@ -151,6 +172,7 @@ export function Connections() {
           presetIds,
           ...(apiFormat ? { apiFormat } : {}),
           ...(providerBasePath ? { providerBasePath } : {}),
+          ...(cliproxyAccountId ? { cliproxyAccountId } : {}),
         }),
       });
       if (result.failed.length)
@@ -203,7 +225,10 @@ export function Connections() {
         <ConnectionFormCard
           initial={editing}
           error={saveConnection.error?.message}
-          onCancel={() => { setShowForm(false); setEditing(null); }}
+          onCancel={() => {
+            setShowForm(false);
+            setEditing(null);
+          }}
           onSave={(form) => saveConnection.mutate(form)}
         />
       )}
@@ -219,13 +244,20 @@ export function Connections() {
       {showBindPreset && (
         <BindPresetModal
           presets={presets.data ?? []}
-          boundPresetIds={new Set((bindings.data ?? []).map((b) => b.presetId))}
+          bindings={bindings.data ?? []}
+          cliproxyAccounts={cliproxyAccounts.data ?? []}
           tokenCount={tokens.data?.length ?? 0}
           error={addBindings.error?.message}
           isPending={addBindings.isPending}
           onCancel={() => setShowBindPreset(null)}
-          onBind={(presetIds, apiFormat, providerBasePath) =>
-            addBindings.mutate({ connectionId: showBindPreset, presetIds, apiFormat, providerBasePath })
+          onBind={(presetIds, apiFormat, providerBasePath, cliproxyAccountId) =>
+            addBindings.mutate({
+              connectionId: showBindPreset,
+              presetIds,
+              apiFormat,
+              providerBasePath,
+              cliproxyAccountId,
+            })
           }
         />
       )}
@@ -242,9 +274,13 @@ export function Connections() {
                   aria-label={`${connection.enabled ? 'Disable' : 'Enable'} ${connection.displayName}`}
                   className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 ${connection.enabled ? 'bg-emerald-500/80' : 'bg-zinc-700'}`}
                   disabled={toggleConnection.isPending}
-                  onClick={() => toggleConnection.mutate({ id: connection.id, enabled: !connection.enabled })}
+                  onClick={() =>
+                    toggleConnection.mutate({ id: connection.id, enabled: !connection.enabled })
+                  }
                   role="switch"
-                  title={connection.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}
+                  title={
+                    connection.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'
+                  }
                   type="button"
                 >
                   <span
@@ -309,7 +345,11 @@ export function Connections() {
                                 })
                               }
                               role="switch"
-                              title={token.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}
+                              title={
+                                token.enabled
+                                  ? 'Enabled — click to disable'
+                                  : 'Disabled — click to enable'
+                              }
                               type="button"
                             >
                               <span
@@ -327,7 +367,8 @@ export function Connections() {
                               </span>
                               {token.enabled && cooling && (
                                 <span className="block truncate text-xs text-amber-400">
-                                  Cooling down until {new Date(token.cooldownUntil!).toLocaleTimeString()}
+                                  Cooling down until{' '}
+                                  {new Date(token.cooldownUntil!).toLocaleTimeString()}
                                   {errorMessage ? ` — ${errorMessage}` : ''}
                                 </span>
                               )}
@@ -341,7 +382,10 @@ export function Connections() {
                               className="btn btn-danger h-7 px-2.5 text-xs"
                               onClick={() =>
                                 confirm(`Delete token "${token.name}"?`) &&
-                                deleteToken.mutate({ connectionId: connection.id, tokenId: token.id })
+                                deleteToken.mutate({
+                                  connectionId: connection.id,
+                                  tokenId: token.id,
+                                })
                               }
                             >
                               Delete
@@ -350,7 +394,9 @@ export function Connections() {
                         );
                       })}
                       {(!tokens.data || tokens.data.length === 0) && (
-                        <p className="px-4 py-3 text-center text-sm text-zinc-500">No tokens added yet.</p>
+                        <p className="px-4 py-3 text-center text-sm text-zinc-500">
+                          No tokens added yet.
+                        </p>
                       )}
                     </div>
                     <button
@@ -372,7 +418,10 @@ export function Connections() {
                           className="flex items-center gap-3 border-b border-zinc-800/60 px-4 py-2.5 last:border-b-0"
                           key={binding.id}
                         >
-                          <span className="w-32 shrink-0 truncate text-sm" title={binding.presetDisplayName}>
+                          <span
+                            className="w-32 shrink-0 truncate text-sm"
+                            title={binding.presetDisplayName}
+                          >
                             {binding.presetDisplayName}
                           </span>
                           <span
@@ -390,8 +439,13 @@ export function Connections() {
                           <button
                             className="btn btn-danger ml-auto h-7 shrink-0 px-2.5 text-xs"
                             onClick={() =>
-                              confirm(`Unbind "${binding.presetDisplayName}" from this connection? This will remove all associated model instances.`) &&
-                              deleteBinding.mutate({ connectionId: connection.id, bindingId: binding.id })
+                              confirm(
+                                `Unbind "${binding.presetDisplayName}" from this connection? This will remove all associated model instances.`,
+                              ) &&
+                              deleteBinding.mutate({
+                                connectionId: connection.id,
+                                bindingId: binding.id,
+                              })
                             }
                           >
                             Unbind
@@ -399,7 +453,9 @@ export function Connections() {
                         </div>
                       ))}
                       {(!bindings.data || bindings.data.length === 0) && (
-                        <p className="px-4 py-3 text-center text-sm text-zinc-500">No bindings yet.</p>
+                        <p className="px-4 py-3 text-center text-sm text-zinc-500">
+                          No bindings yet.
+                        </p>
                       )}
                     </div>
                     <button
@@ -518,13 +574,14 @@ function AddTokenModal({
       <section className="card w-full max-w-md" role="dialog" aria-modal="true">
         <h2 className="text-lg font-medium">Add token</h2>
         <p className="muted mt-1">API keys are stored encrypted and never shown after creation.</p>
-        <form
-          className="mt-4 grid gap-4"
-          onSubmit={handleSubmit((v) => onAdd(v.name, v.apiKey))}
-        >
+        <form className="mt-4 grid gap-4" onSubmit={handleSubmit((v) => onAdd(v.name, v.apiKey))}>
           <label>
             <span className="label">Token name</span>
-            <input className="input" {...register('name', { required: true })} placeholder="e.g. Primary, Backup" />
+            <input
+              className="input"
+              {...register('name', { required: true })}
+              placeholder="e.g. Primary, Backup"
+            />
           </label>
           <label>
             <span className="label">API key</span>
@@ -551,7 +608,8 @@ function AddTokenModal({
 
 function BindPresetModal({
   presets,
-  boundPresetIds,
+  bindings,
+  cliproxyAccounts,
   tokenCount,
   error,
   isPending,
@@ -559,17 +617,38 @@ function BindPresetModal({
   onBind,
 }: {
   presets: Preset[];
-  boundPresetIds: Set<string>;
+  bindings: ModelBinding[];
+  cliproxyAccounts: CliproxyAccount[];
   tokenCount: number;
   error?: string;
   isPending: boolean;
   onCancel: () => void;
-  onBind: (presetIds: string[], apiFormat: string, providerBasePath: string) => void;
+  onBind: (
+    presetIds: string[],
+    apiFormat: string,
+    providerBasePath: string,
+    cliproxyAccountId?: string,
+  ) => void;
 }) {
-  const available = presets.filter((p) => !boundPresetIds.has(p.id));
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [apiFormat, setApiFormat] = useState('');
   const [providerBasePath, setProviderBasePath] = useState('');
+  const [cliproxyAccountId, setCliproxyAccountId] = useState('');
+  const selectedCliproxyAccount = cliproxyAccounts.find(
+    (account) => account.id === cliproxyAccountId,
+  );
+  const available = presets.filter((preset) => {
+    const presetProvider = preset.displayName.split('/')[0]?.trim().toLowerCase();
+    const providerMatches =
+      !selectedCliproxyAccount || presetProvider === selectedCliproxyAccount.provider;
+    return (
+      providerMatches &&
+      !bindings.some(
+        (binding) =>
+          binding.presetId === preset.id && (binding.cliproxyAccountId ?? '') === cliproxyAccountId,
+      )
+    );
+  });
   const allSelected = available.length > 0 && selected.size === available.length;
 
   function toggle(id: string) {
@@ -599,9 +678,33 @@ function BindPresetModal({
           className="mt-4 grid gap-4"
           onSubmit={(event) => {
             event.preventDefault();
-            if (selected.size) onBind([...selected], apiFormat, providerBasePath);
+            if (selected.size)
+              onBind([...selected], apiFormat, providerBasePath, cliproxyAccountId || undefined);
           }}
         >
+          {cliproxyAccounts.length > 0 && (
+            <label>
+              <span className="label">CLIProxy account</span>
+              <select
+                className="input"
+                onChange={(event) => {
+                  setCliproxyAccountId(event.target.value);
+                  setSelected(new Set());
+                }}
+                value={cliproxyAccountId}
+              >
+                <option value="">No CLIProxy account</option>
+                {cliproxyAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.provider} · {account.label ?? account.prefix} · {account.prefix}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-xs text-zinc-500">
+                Select the exact auth JSON to use. Required when binding the CLIProxyAPI connection.
+              </span>
+            </label>
+          )}
           <div>
             <div className="mb-2 flex items-center justify-between">
               <span className="label">Presets ({selected.size} selected)</span>

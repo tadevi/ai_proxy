@@ -49,6 +49,8 @@ export const modelBindingInputSchema = z.object({
   presetIds: z.array(z.string().uuid()).min(1).max(100),
   apiFormat: apiFormatSchema.optional(),
   providerBasePath: relativePathSchema.or(z.literal('')).default(''),
+  // Required for the shared CLIProxyAPI connection so every route has an exact auth account.
+  cliproxyAccountId: z.string().uuid().nullable().optional(),
 });
 
 // ── Model (manual create/edit, backward compat) ────────────

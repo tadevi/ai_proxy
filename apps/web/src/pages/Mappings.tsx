@@ -42,10 +42,12 @@ export function Mappings() {
       <div className="mb-7">
         <h1 className="text-2xl font-bold tracking-tight">Mappings</h1>
         <p className="mt-1.5 max-w-2xl text-[14.5px] text-zinc-400">
-          Bindings are attempted from top to bottom; the gateway picks which token to use
-          within each. Changes save immediately.
+          Bindings are attempted from top to bottom; the gateway picks which token to use within
+          each. Changes save immediately.
         </p>
-        {save.error && <p className="mt-2 text-sm text-red-400">Could not save: {save.error.message}</p>}
+        {save.error && (
+          <p className="mt-2 text-sm text-red-400">Could not save: {save.error.message}</p>
+        )}
       </div>
       <div className="flex flex-wrap gap-5">
         {mappings.data?.map((m) => (
@@ -91,6 +93,8 @@ function Column({
         presetDisplayName: b.presetDisplayName,
         presetUpstreamModelId: b.presetUpstreamModelId,
         providerConnectionName: b.connectionName ?? '',
+        cliproxyAccountLabel: b.cliproxyAccountLabel,
+        cliproxyAccountPrefix: b.cliproxyAccountPrefix,
         apiFormat: b.apiFormat,
       },
     ]);
@@ -156,7 +160,8 @@ function Column({
                   .filter((b) => !mapping.routes.some((r) => r.bindingId === b.id))
                   .map((b) => (
                     <option value={b.id} key={b.id}>
-                      {b.presetDisplayName} · {b.connectionName}
+                      {b.presetDisplayName} ·{' '}
+                      {b.cliproxyAccountLabel ?? b.cliproxyAccountPrefix ?? b.connectionName}
                     </option>
                   ))}
               </select>
@@ -227,6 +232,11 @@ function SortableRoute({
                 <span className="text-[14.5px] font-semibold text-zinc-100">
                   {route.presetDisplayName}
                 </span>
+                {(route.cliproxyAccountLabel || route.cliproxyAccountPrefix) && (
+                  <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-400">
+                    {route.cliproxyAccountLabel ?? route.cliproxyAccountPrefix}
+                  </span>
+                )}
               </div>
               <div className="mt-0.5 truncate font-mono text-xs text-zinc-500">
                 {route.providerConnectionName} · {route.presetUpstreamModelId} ·{' '}
