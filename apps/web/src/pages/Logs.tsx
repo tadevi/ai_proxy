@@ -132,24 +132,20 @@ export function Logs() {
               <tr className="border-b border-zinc-800/60" key={l.id}>
                 <td className="whitespace-nowrap p-3">{new Date(l.createdAt).toLocaleString()}</td>
                 <td className="p-3 font-mono text-xs">{l.requestId}</td>
-                <td className="p-3">
-                  {l.incomingModel}
-                  <br />
-                  <span
-                    className="text-zinc-500"
-                    title={
-                      l.cliproxyAccountLabel || l.cliproxyAccountPrefix
-                        ? (l.cliproxyAccountLabel ?? l.cliproxyAccountPrefix ?? undefined)
-                        : resolvedModelDetails(l.resolvedUpstreamModel)
-                    }
-                  >
+                <td className="p-3 text-sm leading-5">
+                  <span className="block">{l.incomingModel}</span>
+                  <span className="block text-zinc-400">
                     {resolvedModelLabel(l.resolvedUpstreamModel)}
-                    {(l.cliproxyAccountLabel || l.cliproxyAccountPrefix) && (
-                      <span className="ml-1 text-zinc-600">
-                        · {l.cliproxyAccountLabel ?? l.cliproxyAccountPrefix}
-                      </span>
-                    )}
                   </span>
+                  {(l.cliproxyAccountLabel || l.cliproxyAccountPrefix) ? (
+                    <span className="block text-xs text-zinc-500">
+                      {l.cliproxyAccountLabel ?? l.cliproxyAccountPrefix}
+                    </span>
+                  ) : resolvedModelDetails(l.resolvedUpstreamModel) ? (
+                    <span className="block text-xs text-zinc-500">
+                      {resolvedModelDetails(l.resolvedUpstreamModel)}
+                    </span>
+                  ) : null}
                 </td>
                 <td className="p-3">
                   {l.apiFormat === 'anthropic_compatible'
