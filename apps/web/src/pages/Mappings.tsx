@@ -228,18 +228,16 @@ function SortableRoute({
               <GripVertical size={15} />
             </button>
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[14.5px] font-semibold text-zinc-100">
-                  {route.presetDisplayName}
-                </span>
-                {(route.cliproxyAccountLabel || route.cliproxyAccountPrefix) && (
-                  <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-400">
-                    {route.cliproxyAccountLabel ?? route.cliproxyAccountPrefix}
-                  </span>
-                )}
+              <div className="text-[14.5px] font-semibold text-zinc-100">
+                {route.presetDisplayName}
+              </div>
+              <div className="mt-0.5 truncate text-xs text-zinc-400">
+                {route.cliproxyAccountLabel ??
+                  route.cliproxyAccountPrefix ??
+                  route.providerConnectionName}
               </div>
               <div className="mt-0.5 truncate font-mono text-xs text-zinc-500">
-                {route.providerConnectionName} · {route.presetUpstreamModelId} ·{' '}
+                {route.presetUpstreamModelId} ·{' '}
                 {route.apiFormat === 'anthropic_compatible' ? 'Anthropic' : 'OpenAI'}
               </div>
             </div>

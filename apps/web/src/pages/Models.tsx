@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type Model, type ProviderConnection } from '../api';
 import { formatTokens, latestErrorMessage } from '../format';
@@ -10,6 +10,12 @@ type ModelUsage = {
   outputTokens: string;
   cacheInputTokens: string;
 };
+
+function modelLabel(model: Model) {
+  // Connection/token identity is rendered separately, so avoid repeating
+  // the generated "(token @ connection)" suffix in the model name.
+  return model.displayName.replace(/\s+\([^()]+\s+@\s+[^()]+\)$/, '');
+}
 
 export function Models() {
   const qc = useQueryClient();
@@ -29,6 +35,12 @@ export function Models() {
     refetchInterval: 10_000,
   });
   const usageByModel = new Map(usage.data?.map((item) => [item.upstreamModelId, item]));
+
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(null), 5_000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
 
   const testModel = useMutation({
     mutationFn: (id: string) => api<{ message: string }>(`/api/models/${id}/test`, { method: 'POST' }),
@@ -159,7 +171,7 @@ export function Models() {
                     key={m.id}
                   >
                     <td className="max-w-[16rem] truncate px-4 py-2.5">
-                      <div className="truncate font-medium">{m.displayName}</div>
+                      <div className="truncate font-medium">{modelLabel(m)}</div>
                       <div className="truncate font-mono text-[11px] text-zinc-500">
                         {m.upstreamModelId}
                       </div>
@@ -282,8 +294,8 @@ function ModelCard({
       <div className="p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <h3 className="truncate font-mono text-lg font-medium" title={m.displayName}>
-              {m.displayName}
+            <h3 className="truncate font-mono text-lg font-medium" title={modelLabel(m)}>
+              {modelLabel(m)}
             </h3>
             <span
               className="block truncate font-mono text-[13px] text-zinc-500"
@@ -295,7 +307,7 @@ function ModelCard({
           <div className="flex shrink-0 items-center gap-2">
             <button
               aria-checked={m.enabled}
-              aria-label={`${m.enabled ? 'Disable' : 'Enable'} ${m.displayName}`}
+              aria-label={`${m.enabled ? 'Disable' : 'Enable'} ${modelLabel(m)}`}
               className={`relative h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 ${m.enabled ? 'bg-emerald-500/80' : 'bg-zinc-700'}`}
               onClick={onToggle}
               role="switch"
