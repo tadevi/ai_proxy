@@ -240,11 +240,11 @@
   - [ ] Show the exact account label and prefix.
   - [ ] Warn when deleting an account currently used in active mappings.
 
-- [ ] Add accessible modal behavior.
-  - [ ] Trap focus inside modals.
-  - [ ] Close on Escape.
-  - [ ] Restore focus to the opening button.
-  - [ ] Add `aria-labelledby` and an accessible modal title.
+- [x] Add accessible modal behavior.
+  - [x] Trap focus inside modals.
+  - [x] Close on Escape.
+  - [x] Restore focus to the opening button.
+  - [x] Add `aria-labelledby` and an accessible modal title.
 
 ## Suggested execution order
 

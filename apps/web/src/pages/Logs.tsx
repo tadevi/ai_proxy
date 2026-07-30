@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
+import { Modal, useModalId } from '../Modal';
 
 function formatTokens(tokens?: number) {
   if (tokens === undefined || tokens === null) return '—';
@@ -88,6 +89,7 @@ function tokenTooltip(log: Log) {
 export function Logs() {
   const [selectedError, setSelectedError] = useState<Log | null>(null);
   const [cursorHistory, setCursorHistory] = useState<string[]>([]);
+  const detailTitleId = useModalId();
   const cursor = cursorHistory.at(-1);
   const search = new URLSearchParams(cursor ? { cursor } : undefined);
   const logs = useQuery({
@@ -234,42 +236,29 @@ export function Logs() {
         </div>
       </div>
       {selectedError && (selectedError.providerError || selectedError.thinkingConfig) && (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setSelectedError(null);
-          }}
-          role="presentation"
-        >
-          <section
-            aria-labelledby="detail-title"
-            aria-modal="true"
-            className="card w-full max-w-2xl"
-            role="dialog"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-medium" id="detail-title">
-                  {selectedError.providerError
-                    ? `Error details · ${selectedError.errorCategory ?? 'unknown_error'}`
-                    : 'Thinking config'}
-                </h2>
-                <p className="muted mt-1">Request {selectedError.requestId}</p>
-              </div>
-              <button
-                aria-label="Close details"
-                className="btn"
-                onClick={() => setSelectedError(null)}
-                type="button"
-              >
-                Close
-              </button>
+        <Modal titleId={detailTitleId} onClose={() => setSelectedError(null)} maxWidth="max-w-2xl">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-medium" id={detailTitleId}>
+                {selectedError.providerError
+                  ? `Error details · ${selectedError.errorCategory ?? 'unknown_error'}`
+                  : 'Thinking config'}
+              </h2>
+              <p className="muted mt-1">Request {selectedError.requestId}</p>
             </div>
-            <pre className="mt-4 max-h-[60vh] overflow-auto rounded-lg bg-zinc-950 p-4 text-xs text-zinc-200">
-              {JSON.stringify(selectedError.providerError ?? selectedError.thinkingConfig, null, 2)}
-            </pre>
-          </section>
-        </div>
+            <button
+              aria-label="Close details"
+              className="btn"
+              onClick={() => setSelectedError(null)}
+              type="button"
+            >
+              Close
+            </button>
+          </div>
+          <pre className="mt-4 max-h-[60vh] overflow-auto rounded-lg bg-zinc-950 p-4 text-xs text-zinc-200">
+            {JSON.stringify(selectedError.providerError ?? selectedError.thinkingConfig, null, 2)}
+          </pre>
+        </Modal>
       )}
     </>
   );

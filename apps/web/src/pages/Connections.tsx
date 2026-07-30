@@ -10,6 +10,7 @@ import {
   type Preset,
 } from '../api';
 import { latestErrorMessage } from '../format';
+import { Modal, useModalId } from '../Modal';
 
 type ConnectionForm = {
   displayName: string;
@@ -532,6 +533,7 @@ function ConnectionFormCard({
   onCancel: () => void;
   error?: string;
 }) {
+  const titleId = useModalId();
   const { register, handleSubmit } = useForm<ConnectionForm>({
     defaultValues: initial
       ? {
@@ -542,19 +544,13 @@ function ConnectionFormCard({
       : connectionDefaults,
   });
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel();
-      }}
-      role="presentation"
-    >
+    <Modal titleId={titleId} onClose={onCancel} maxWidth="max-w-2xl">
       <form
         autoComplete="off"
-        className="card w-full max-w-2xl grid gap-4 md:grid-cols-2"
+        className="grid gap-4 md:grid-cols-2"
         onSubmit={handleSubmit(onSave)}
       >
-        <h2 className="text-lg font-medium md:col-span-2">
+        <h2 className="text-lg font-medium md:col-span-2" id={titleId}>
           {initial ? 'Edit connection' : 'Add connection'}
         </h2>
         <label>
@@ -580,7 +576,7 @@ function ConnectionFormCard({
           </button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }
 
@@ -593,47 +589,40 @@ function AddTokenModal({
   onCancel: () => void;
   onAdd: (name: string, apiKey: string) => void;
 }) {
+  const titleId = useModalId();
   const { register, handleSubmit } = useForm<TokenForm>({ defaultValues: tokenDefaults });
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel();
-      }}
-      role="presentation"
-    >
-      <section className="card w-full max-w-md" role="dialog" aria-modal="true">
-        <h2 className="text-lg font-medium">Add token</h2>
-        <p className="muted mt-1">API keys are stored encrypted and never shown after creation.</p>
-        <form className="mt-4 grid gap-4" onSubmit={handleSubmit((v) => onAdd(v.name, v.apiKey))}>
-          <label>
-            <span className="label">Token name</span>
-            <input
-              className="input"
-              {...register('name', { required: true })}
-              placeholder="e.g. Primary, Backup"
-            />
-          </label>
-          <label>
-            <span className="label">API key</span>
-            <input
-              autoComplete="new-password"
-              className="input"
-              spellCheck={false}
-              type="password"
-              {...register('apiKey', { required: true })}
-            />
-          </label>
-          {error && <p className="text-red-400">{error}</p>}
-          <div className="flex gap-2">
-            <button className="btn btn-primary">Add</button>
-            <button type="button" className="btn" onClick={onCancel}>
-              Cancel
-            </button>
-          </div>
-        </form>
-      </section>
-    </div>
+    <Modal titleId={titleId} onClose={onCancel} maxWidth="max-w-md">
+      <h2 className="text-lg font-medium" id={titleId}>Add token</h2>
+      <p className="muted mt-1">API keys are stored encrypted and never shown after creation.</p>
+      <form className="mt-4 grid gap-4" onSubmit={handleSubmit((v) => onAdd(v.name, v.apiKey))}>
+        <label>
+          <span className="label">Token name</span>
+          <input
+            className="input"
+            {...register('name', { required: true })}
+            placeholder="e.g. Primary, Backup"
+          />
+        </label>
+        <label>
+          <span className="label">API key</span>
+          <input
+            autoComplete="new-password"
+            className="input"
+            spellCheck={false}
+            type="password"
+            {...register('apiKey', { required: true })}
+          />
+        </label>
+        {error && <p className="text-red-400">{error}</p>}
+        <div className="flex gap-2">
+          <button className="btn btn-primary">Add</button>
+          <button type="button" className="btn" onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -663,6 +652,7 @@ function BindPresetModal({
     cliproxyAccountId?: string,
   ) => void;
 }) {
+  const titleId = useModalId();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [apiFormat, setApiFormat] = useState('');
   const [providerBasePath, setProviderBasePath] = useState('');
@@ -694,27 +684,20 @@ function BindPresetModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel();
-      }}
-      role="presentation"
-    >
-      <section className="card w-full max-w-lg" role="dialog" aria-modal="true">
-        <h2 className="text-lg font-medium">Bind presets</h2>
-        <p className="muted mt-1">
-          Link one or more model presets to this connection. This will create model instances
-          automatically.
-        </p>
-        <form
-          className="mt-4 grid gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (selected.size)
-              onBind([...selected], apiFormat, providerBasePath, cliproxyAccountId || undefined);
-          }}
-        >
+    <Modal titleId={titleId} onClose={onCancel} maxWidth="max-w-lg">
+      <h2 className="text-lg font-medium" id={titleId}>Bind presets</h2>
+      <p className="muted mt-1">
+        Link one or more model presets to this connection. This will create model instances
+        automatically.
+      </p>
+      <form
+        className="mt-4 grid gap-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (selected.size)
+            onBind([...selected], apiFormat, providerBasePath, cliproxyAccountId || undefined);
+        }}
+      >
           {(requiresCliproxyAccount || cliproxyAccounts.length > 0) && (
             <label>
               <span className="label">CLIProxy account</span>
@@ -828,7 +811,6 @@ function BindPresetModal({
             </button>
           </div>
         </form>
-      </section>
-    </div>
+    </Modal>
   );
 }
