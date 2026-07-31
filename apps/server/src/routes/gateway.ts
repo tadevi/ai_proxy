@@ -64,6 +64,7 @@ const cooldownStatuses = new Set([403]);
 const disableStatuses = new Set([401, 402]);
 const disableErrorTypes = new Set(['insufficient_balance', 'quota_exceeded', 'billing_error']);
 const cooldownDurationMs = 60 * 60 * 1_000;
+const fallbackCooldownDurationMs = 5 * 60 * 1_000;
 const safeProviderMessage = (status: number) =>
   status === 401 || status === 403
     ? 'The provider rejected the configured API key.'
@@ -565,6 +566,10 @@ async function resolve(
             isNull(cliproxyModelStates.cooldownUntil),
             lte(cliproxyModelStates.cooldownUntil, new Date()),
           ),
+          or(
+            isNull(upstreamModels.fallbackCooldownUntil),
+            lte(upstreamModels.fallbackCooldownUntil, new Date()),
+          ),
           eq(upstreamModels.enabled, true),
           eq(providerConnections.enabled, true),
         ),
@@ -613,6 +618,10 @@ async function resolve(
             isNull(cliproxyModelStates.id),
             isNull(cliproxyModelStates.cooldownUntil),
             lte(cliproxyModelStates.cooldownUntil, new Date()),
+          ),
+          or(
+            isNull(upstreamModels.fallbackCooldownUntil),
+            lte(upstreamModels.fallbackCooldownUntil, new Date()),
           ),
           eq(upstreamModels.enabled, true),
           eq(providerConnections.enabled, true),
@@ -857,11 +866,22 @@ async function handleMessage(
           status: failure.status,
         });
       }
-      if (
-        (!failure.fallbackable && !cooldownStatuses.has(failure.status) && !imageRoutingFailure) ||
-        index === attempts.length - 1
-      )
-        break;
+      const willFallback =
+        index < attempts.length - 1 &&
+        (failure.fallbackable || cooldownStatuses.has(failure.status) || imageRoutingFailure);
+      if (!willFallback) break;
+
+      const fallbackCooldownUntil = new Date(Date.now() + fallbackCooldownDurationMs);
+      await app.db
+        .update(upstreamModels)
+        .set({ fallbackCooldownUntil, updatedAt: new Date() })
+        .where(eq(upstreamModels.id, attempt.resolved.model.id));
+      logWarn('model placed in short cooldown before fallback', {
+        requestId,
+        resolvedUpstreamModel: attempt.resolved.model.displayName,
+        resolvedUpstreamModelId: attempt.resolved.model.id,
+        fallbackCooldownUntil: fallbackCooldownUntil.toISOString(),
+      });
     }
   }
   const final =
@@ -1104,6 +1124,7 @@ async function recordModelSuccess(app: FastifyInstance, modelId: string) {
       latestTestAt: new Date(),
       latestError: null,
       latestErrorAt: null,
+      fallbackCooldownUntil: null,
       updatedAt: new Date(),
     })
     .where(eq(upstreamModels.id, modelId));

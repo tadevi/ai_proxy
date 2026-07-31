@@ -191,12 +191,16 @@ export const upstreamModels = pgTable(
     supportsReasoning: capability('supports_reasoning').default('yes').notNull(),
     enabled: boolean('enabled').default(true).notNull(),
     // Per-(model, token) test/request outcome stays here — a 404/format/capability
-    // problem is specific to this model, not to the credential. Only cooldown (a
-    // quota/auth failure, which is about the credential) moved to connectionTokens.
+    // problem is specific to this model, not to the credential. Quota/auth cooldown,
+    // which is about the credential, lives on connectionTokens; the separate short
+    // fallback cooldown below only penalizes this exact model/token route.
     latestTestStatus: text('latest_test_status'),
     latestTestAt: timestamp('latest_test_at', { withTimezone: true }),
     latestError: jsonb('latest_error'),
     latestErrorAt: timestamp('latest_error_at', { withTimezone: true }),
+    // Short-lived routing penalty after this exact model/token instance fails and
+    // traffic successfully has another candidate available to fall back to.
+    fallbackCooldownUntil: timestamp('fallback_cooldown_until', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },

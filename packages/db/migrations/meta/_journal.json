@@ -141,6 +141,13 @@
       "when": 1785355200000,
       "tag": "0019_binding_model_cascade",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785488400000,
+      "tag": "0020_model_fallback_cooldown",
+      "breakpoints": true
     }
   ]
 }
