@@ -10,8 +10,15 @@ export type ReasoningTelemetry = {
   emit(event: string, details: Record<string, unknown>): void;
 };
 
+export const consoleReasoningTelemetry: ReasoningTelemetry = {
+  emit(event, details) {
+    console.warn(`[warn] ${event} ${JSON.stringify(details)}`);
+  },
+};
+
 export type ReasoningCodecContext = {
   telemetry?: ReasoningTelemetry;
+  attributes?: Record<string, unknown>;
   upstream?: UpstreamContext;
   resolveProxySignature?: (
     signature: string,
@@ -54,6 +61,17 @@ function thinkingText(content: Json[]) {
   return parts.length ? parts.join('\n\n') : undefined;
 }
 
+function emit(
+  context: ReasoningCodecContext | undefined,
+  event: string,
+  details: Record<string, unknown>,
+) {
+  context?.telemetry?.emit(event, {
+    ...context.attributes,
+    ...details,
+  });
+}
+
 export const reasoningContentCodec: ReasoningCodec = {
   wireFormat: 'reasoning_content',
 
@@ -61,7 +79,7 @@ export const reasoningContentCodec: ReasoningCodec = {
     const value = thinkingText(content);
     if (!value) return undefined;
 
-    context?.telemetry?.emit('reasoning.history.replayed', {
+    emit(context, 'reasoning.history.replayed', {
       wireFormat: this.wireFormat,
       payloadBytes: utf8Bytes(value),
       thinkingBlockCount: content.filter((block) => block.type === 'thinking').length,
@@ -74,7 +92,7 @@ export const reasoningContentCodec: ReasoningCodec = {
     const value = message.reasoning_content;
     if (typeof value !== 'string' || !value) return [];
 
-    context?.telemetry?.emit('reasoning.response.detected', {
+    emit(context, 'reasoning.response.detected', {
       wireFormat: this.wireFormat,
       mode: 'non_streaming',
       payloadBytes: utf8Bytes(value),
