@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   anthropicRequestSchema,
   anthropicToOpenAI,
@@ -23,16 +23,18 @@ const request = anthropicRequestSchema.parse({
 });
 
 describe('Ollama reasoning compatibility', () => {
-  it('selects the reasoning codec for Ollama-prefixed models', () => {
+  it('selects the reasoning codec for Ollama-prefixed and Cloud model ids', () => {
     expect(reasoningWireFormatForModel('Ollama/minimax-m3')).toBe('reasoning');
     expect(reasoningWireFormatForModel('ollama/gpt-oss:120b')).toBe('reasoning');
+    expect(reasoningWireFormatForModel('minimax-m3')).toBe('reasoning');
+    expect(reasoningWireFormatForModel('gpt-oss:120b')).toBe('reasoning');
     expect(reasoningWireFormatForModel('poolside/laguna-s-2.1', 'reasoning_content')).toBe(
       'reasoning_content',
     );
   });
 
   it('replays Anthropic thinking history through message.reasoning', async () => {
-    const body = await anthropicToOpenAI(request, 'Ollama/minimax-m3');
+    const body = await anthropicToOpenAI(request, 'minimax-m3');
     const assistant = (body.messages as Array<Record<string, unknown>>).find(
       (message) => message.role === 'assistant',
     );
@@ -69,7 +71,8 @@ describe('Ollama reasoning compatibility', () => {
     ]);
   });
 
-  it('keeps reasoning open across empty content deltas and emits final usage', async () => {
+  it('keeps reasoning open, logs detection, and persists Ollama Cloud usage', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     async function* source() {
       yield JSON.stringify({
         choices: [
@@ -102,9 +105,6 @@ describe('Ollama reasoning compatibility', () => {
         choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }],
       });
       yield JSON.stringify({
-        id: 'chatcmpl-381',
-        object: 'chat.completion.chunk',
-        model: 'minimax-m3',
         choices: [],
         usage: { prompt_tokens: 181, completion_tokens: 35, total_tokens: 0 },
       });
@@ -115,7 +115,7 @@ describe('Ollama reasoning compatibility', () => {
     let output = '';
     for await (const chunk of openAIStreamToAnthropic(
       source(),
-      'Ollama/gpt-oss:120b',
+      'Ollama/minimax-m3',
       'msg_ollama',
       usage,
     )) {
@@ -137,5 +137,7 @@ describe('Ollama reasoning compatibility', () => {
       outputTokens: 35,
       reasoningDetails: true,
     });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('reasoning.response.detected'));
+    warn.mockRestore();
   });
 });
