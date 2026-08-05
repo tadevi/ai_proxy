@@ -37,6 +37,8 @@ export function buildReasoningConfig(
 
   if (capabilities.supportsReasoningBudget && budgetTokens != null) {
     reasoning.max_tokens = budgetTokens;
+  } else if (capabilities.supportsReasoningEffort && thinking.effort) {
+    reasoning.effort = normalizeUpstreamEffort(thinking.effort);
   } else if (capabilities.supportsReasoningEffort && budgetTokens != null) {
     reasoning.effort = budgetToEffort(budgetTokens);
   } else if (capabilities.supportsAdaptiveReasoning) {
@@ -50,6 +52,12 @@ export function buildReasoningConfig(
   }
 
   return Object.keys(reasoning).length > 0 ? reasoning : undefined;
+}
+
+function normalizeUpstreamEffort(
+  effort: NonNullable<NormalizedThinking['effort']>,
+): 'low' | 'medium' | 'high' | 'max' {
+  return effort === 'xhigh' ? 'max' : effort;
 }
 
 function budgetToEffort(budgetTokens: number): string {
