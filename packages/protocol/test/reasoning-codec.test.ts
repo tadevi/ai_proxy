@@ -2,11 +2,21 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   decodeReasoningResponse,
   getReasoningCodec,
+  reasoningCodec,
   reasoningContentCodec,
   reasoningDetailsCodec,
 } from '../src/index.js';
 
 describe('reasoning codecs', () => {
+  it('encodes Ollama history as reasoning', async () => {
+    const encoded = await reasoningCodec.encodeHistory([
+      { type: 'thinking', thinking: 'private plan' },
+      { type: 'text', text: 'visible' },
+    ]);
+
+    expect(encoded).toEqual({ field: 'reasoning', value: 'private plan' });
+  });
+
   it('encodes Poolside history as reasoning_content and emits telemetry', async () => {
     const emit = vi.fn();
     const encoded = await reasoningContentCodec.encodeHistory(
@@ -55,16 +65,19 @@ describe('reasoning codecs', () => {
   it('decodes all supported non-streaming response fields', async () => {
     await expect(
       decodeReasoningResponse({
+        reasoning: 'ollama plan',
         reasoning_content: 'poolside plan',
         reasoning_details: [{ type: 'reasoning.summary', summary: 'summary' }],
       }),
     ).resolves.toEqual([
+      { type: 'thinking', thinking: 'ollama plan' },
       { type: 'thinking', thinking: 'poolside plan' },
       { type: 'thinking', thinking: 'summary' },
     ]);
   });
 
   it('resolves codecs by wire format', () => {
+    expect(getReasoningCodec('reasoning')).toBe(reasoningCodec);
     expect(getReasoningCodec('reasoning_content')).toBe(reasoningContentCodec);
     expect(getReasoningCodec('reasoning_details')).toBe(reasoningDetailsCodec);
   });
