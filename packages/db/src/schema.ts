@@ -311,6 +311,11 @@ export const modelUsageDaily = pgTable(
     inputTokens: bigint('input_tokens', { mode: 'number' }).default(0).notNull(),
     outputTokens: bigint('output_tokens', { mode: 'number' }).default(0).notNull(),
     cacheInputTokens: bigint('cache_input_tokens', { mode: 'number' }).default(0).notNull(),
+    cacheUsageReportedRequestCount: bigint('cache_usage_reported_request_count', {
+      mode: 'number',
+    })
+      .default(0)
+      .notNull(),
   },
   (t) => [
     unique('model_usage_daily_unique').on(t.userId, t.upstreamModelId, t.usageDate),

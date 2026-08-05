@@ -29,7 +29,6 @@ import {
   type ReasoningWireFormat,
   type Rule,
   type StreamUsage,
-  type UpstreamContext,
 } from '@gateway/protocol';
 import { gatewayAuth } from '../auth.js';
 import { createReasoningStateStore } from '../reasoning-state.js';
@@ -188,6 +187,19 @@ function isDisableError(status: number, providerError?: ProviderErrorDetails): b
   if (disableStatuses.has(status)) return true;
   const type = (providerError?.response as Record<string, unknown> | undefined)?.type;
   return typeof type === 'string' && disableErrorTypes.has(type);
+}
+
+export function extractCacheInputTokens(
+  usage: Record<string, unknown> | undefined,
+): number | undefined {
+  const cacheCreation = usage?.cache_creation_input_tokens;
+  const cacheRead = usage?.cache_read_input_tokens;
+  const reported = typeof cacheCreation === 'number' || typeof cacheRead === 'number';
+  if (!reported) return undefined;
+  return (
+    (typeof cacheCreation === 'number' ? cacheCreation : 0) +
+    (typeof cacheRead === 'number' ? cacheRead : 0)
+  );
 }
 
 export function safeProviderErrorBody(value: unknown): Record<string, unknown> {
@@ -781,13 +793,12 @@ async function handleMessage(
         return;
       }
       const body = result.body as Record<string, unknown>;
-      const usage = body.usage as Record<string, number> | undefined;
-      const cacheTokens =
-        (usage?.cache_creation_input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0);
+      const usage = body.usage as Record<string, unknown> | undefined;
+      const cacheInputTokens = extractCacheInputTokens(usage);
       const content = body.content as Array<Record<string, unknown>> | undefined;
-      const hasReasoningDetails = content?.some(
-        (block) => block.type === 'thinking' || block.type === 'redacted_thinking',
-      ) ?? false;
+      const hasReasoningDetails =
+        content?.some((block) => block.type === 'thinking' || block.type === 'redacted_thinking') ??
+        false;
       await recordModelSuccess(app, attempt.resolved.model.id);
       await writeLog(app, {
         userId,
@@ -798,9 +809,9 @@ async function handleMessage(
         apiFormat: attempt.resolved.model.apiFormat,
         status: 200,
         latencyMs: Date.now() - started,
-        inputTokens: usage?.input_tokens,
-        outputTokens: usage?.output_tokens,
-        cacheInputTokens: cacheTokens || undefined,
+        inputTokens: typeof usage?.input_tokens === 'number' ? usage.input_tokens : undefined,
+        outputTokens: typeof usage?.output_tokens === 'number' ? usage.output_tokens : undefined,
+        cacheInputTokens: cacheInputTokens,
         thinkingConfig: thinkingLogConfig(request),
         reasoningDetails: hasReasoningDetails,
         fallbackCount: index,
@@ -1002,12 +1013,13 @@ async function callModel(
             if (!message || typeof message !== 'object') return count;
             const details = (message as Record<string, unknown>).reasoning_details;
             return Array.isArray(details)
-              ? count + details.filter(
-                  (detail) =>
-                    detail &&
-                    typeof detail === 'object' &&
-                    typeof (detail as Record<string, unknown>).signature === 'string',
-                ).length
+              ? count +
+                  details.filter(
+                    (detail) =>
+                      detail &&
+                      typeof detail === 'object' &&
+                      typeof (detail as Record<string, unknown>).signature === 'string',
+                  ).length
               : count;
           }, 0)
         : 0;
@@ -1071,21 +1083,27 @@ async function callModel(
       const usage: StreamUsage = {};
       const source =
         model.apiFormat === 'openai_compatible'
-          ? openAIStreamToAnthropic(parseSSE(response.body), clientModel, undefined, usage, async (detail) => {
-              const handle = await reasoningState.store({
-                data: detail.data,
-                format: detail.format ?? 'unknown',
-                userId,
-                connectionId: connection.id,
-                upstreamModelId: model.upstreamModelId,
-                createdAt: Date.now(),
-              });
-              logWarn('foreign encrypted reasoning stored (stream)', {
-                upstreamModelId: model.upstreamModelId,
-                format: detail.format,
-              });
-              return handle;
-            })
+          ? openAIStreamToAnthropic(
+              parseSSE(response.body),
+              clientModel,
+              undefined,
+              usage,
+              async (detail) => {
+                const handle = await reasoningState.store({
+                  data: detail.data,
+                  format: detail.format ?? 'unknown',
+                  userId,
+                  connectionId: connection.id,
+                  upstreamModelId: model.upstreamModelId,
+                  createdAt: Date.now(),
+                });
+                logWarn('foreign encrypted reasoning stored (stream)', {
+                  upstreamModelId: model.upstreamModelId,
+                  format: detail.format,
+                });
+                return handle;
+              },
+            )
           : rawStream(response.body, usage);
       streamOwnsCleanup = true;
       return {
@@ -1096,21 +1114,26 @@ async function callModel(
     const json = (await response.json()) as Record<string, unknown>;
     if (model.apiFormat !== 'openai_compatible') return { body: { ...json, model: clientModel } };
     return {
-      body: await openAIToAnthropic(json, clientModel, { upstreamProvider: undefined }, async (detail) => {
-        const handle = await reasoningState.store({
-          data: detail.data,
-          format: detail.format ?? 'unknown',
-          userId,
-          connectionId: connection.id,
-          upstreamModelId: model.upstreamModelId,
-          createdAt: Date.now(),
-        });
-        logWarn('foreign encrypted reasoning stored', {
-          upstreamModelId: model.upstreamModelId,
-          format: detail.format,
-        });
-        return handle;
-      }),
+      body: await openAIToAnthropic(
+        json,
+        clientModel,
+        { upstreamProvider: undefined },
+        async (detail) => {
+          const handle = await reasoningState.store({
+            data: detail.data,
+            format: detail.format ?? 'unknown',
+            userId,
+            connectionId: connection.id,
+            upstreamModelId: model.upstreamModelId,
+            createdAt: Date.now(),
+          });
+          logWarn('foreign encrypted reasoning stored', {
+            upstreamModelId: model.upstreamModelId,
+            format: detail.format,
+          });
+          return handle;
+        },
+      ),
     };
   } catch (error) {
     if (error instanceof UpstreamFailure) throw error;
@@ -1244,6 +1267,8 @@ async function recordModelFailure(app: FastifyInstance, modelId: string, failure
 }
 
 async function writeLog(app: FastifyInstance, values: typeof requestLogs.$inferInsert) {
+  const cacheReported = values.cacheInputTokens != null;
+  const cacheForAggregate = values.cacheInputTokens ?? 0;
   await app.db.transaction(async (tx) => {
     await tx.insert(requestLogs).values(values);
     if (!values.resolvedUpstreamModelId) return;
@@ -1257,7 +1282,8 @@ async function writeLog(app: FastifyInstance, values: typeof requestLogs.$inferI
         requestCount: 1,
         inputTokens: values.inputTokens ?? 0,
         outputTokens: values.outputTokens ?? 0,
-        cacheInputTokens: values.cacheInputTokens ?? 0,
+        cacheInputTokens: cacheForAggregate,
+        cacheUsageReportedRequestCount: cacheReported ? 1 : 0,
       })
       .onConflictDoUpdate({
         target: [
@@ -1269,7 +1295,8 @@ async function writeLog(app: FastifyInstance, values: typeof requestLogs.$inferI
           requestCount: sql`${modelUsageDaily.requestCount} + 1`,
           inputTokens: sql`${modelUsageDaily.inputTokens} + ${values.inputTokens ?? 0}`,
           outputTokens: sql`${modelUsageDaily.outputTokens} + ${values.outputTokens ?? 0}`,
-          cacheInputTokens: sql`${modelUsageDaily.cacheInputTokens} + ${values.cacheInputTokens ?? 0}`,
+          cacheInputTokens: sql`${modelUsageDaily.cacheInputTokens} + ${cacheForAggregate}`,
+          cacheUsageReportedRequestCount: sql`${modelUsageDaily.cacheUsageReportedRequestCount} + ${cacheReported ? 1 : 0}`,
         },
       });
   });

@@ -34,7 +34,7 @@ const { db, pool } = createDb(url, ssl);
 async function main() {
   const result = await db.execute(sql`
     INSERT INTO model_usage_daily (
-      user_id, upstream_model_id, usage_date, request_count, input_tokens, output_tokens
+      user_id, upstream_model_id, usage_date, request_count, input_tokens, output_tokens, cache_input_tokens, cache_usage_reported_request_count
     )
     SELECT
       user_id,
@@ -42,14 +42,18 @@ async function main() {
       created_at::date,
       count(*)::bigint,
       coalesce(sum(input_tokens), 0)::bigint,
-      coalesce(sum(output_tokens), 0)::bigint
+      coalesce(sum(output_tokens), 0)::bigint,
+      coalesce(sum(cache_input_tokens), 0)::bigint,
+      count(cache_input_tokens)::bigint
     FROM request_logs
     WHERE resolved_upstream_model_id IS NOT NULL
     GROUP BY user_id, resolved_upstream_model_id, created_at::date
     ON CONFLICT (user_id, upstream_model_id, usage_date) DO UPDATE SET
       request_count = EXCLUDED.request_count,
       input_tokens = EXCLUDED.input_tokens,
-      output_tokens = EXCLUDED.output_tokens
+      output_tokens = EXCLUDED.output_tokens,
+      cache_input_tokens = EXCLUDED.cache_input_tokens,
+      cache_usage_reported_request_count = EXCLUDED.cache_usage_reported_request_count
   `);
   console.log(`model_usage_daily backfilled (${result.rowCount ?? 0} rows affected).`);
   await pool.end();

@@ -123,6 +123,59 @@ describe('protocol conversion', () => {
     );
     expect(body.content[0]).toMatchObject({ type: 'tool_use', input: { a: 1 } });
   });
+
+  it('preserves absent cache details as undefined cache_read_input_tokens', async () => {
+    const body = await openAIToAnthropic(
+      {
+        choices: [{ message: { content: 'hi' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 181, completion_tokens: 23, total_tokens: 204 },
+      },
+      'sonnet',
+    );
+    expect(body.usage).toEqual({
+      input_tokens: 181,
+      output_tokens: 23,
+      cache_read_input_tokens: undefined,
+    });
+  });
+
+  it('preserves explicit zero cached_tokens as 0', async () => {
+    const body = await openAIToAnthropic(
+      {
+        choices: [{ message: { content: 'hi' }, finish_reason: 'stop' }],
+        usage: {
+          prompt_tokens: 181,
+          completion_tokens: 23,
+          prompt_tokens_details: { cached_tokens: 0 },
+        },
+      },
+      'sonnet',
+    );
+    expect(body.usage).toEqual({
+      input_tokens: 181,
+      output_tokens: 23,
+      cache_read_input_tokens: 0,
+    });
+  });
+
+  it('preserves positive cached_tokens', async () => {
+    const body = await openAIToAnthropic(
+      {
+        choices: [{ message: { content: 'hi' }, finish_reason: 'stop' }],
+        usage: {
+          prompt_tokens: 181,
+          completion_tokens: 23,
+          prompt_tokens_details: { cached_tokens: 120 },
+        },
+      },
+      'sonnet',
+    );
+    expect(body.usage).toEqual({
+      input_tokens: 181,
+      output_tokens: 23,
+      cache_read_input_tokens: 120,
+    });
+  });
 });
 
 describe('thinking and declarative rules', () => {
@@ -345,9 +398,7 @@ describe('reasoning mapping', () => {
       expect.arrayContaining([
         expect.objectContaining({
           role: 'assistant',
-          tool_calls: expect.arrayContaining([
-            expect.objectContaining({ id: 'tu_1' }),
-          ]),
+          tool_calls: expect.arrayContaining([expect.objectContaining({ id: 'tu_1' })]),
         }),
       ]),
     );
@@ -428,7 +479,9 @@ describe('reasoning mapping', () => {
       expect.arrayContaining([
         expect.objectContaining({
           role: 'assistant',
-          reasoning_details: [{ type: 'reasoning.encrypted', data: 'encrypted-state', format: 'openai-v2' }],
+          reasoning_details: [
+            { type: 'reasoning.encrypted', data: 'encrypted-state', format: 'openai-v2' },
+          ],
         }),
       ]),
     );
@@ -445,9 +498,7 @@ describe('reasoning mapping', () => {
       ],
       { upstreamProvider: 'anthropic' },
     );
-    expect(blocks).toEqual([
-      { type: 'redacted_thinking', data: 'opaque-data' },
-    ]);
+    expect(blocks).toEqual([{ type: 'redacted_thinking', data: 'opaque-data' }]);
   });
 
   it('OpenAI encrypted detail → returns proxy handle in a thinking block', async () => {
@@ -499,7 +550,9 @@ describe('reasoning mapping', () => {
   it('stream thinking → text', async () => {
     async function* source() {
       yield JSON.stringify({
-        choices: [{ delta: { reasoning_details: [{ type: 'reasoning.text', text: 'thinking...' }] } }],
+        choices: [
+          { delta: { reasoning_details: [{ type: 'reasoning.text', text: 'thinking...' }] } },
+        ],
       });
       yield JSON.stringify({
         choices: [{ delta: { content: 'Hello' }, finish_reason: 'stop' }],
@@ -519,18 +572,28 @@ describe('reasoning mapping', () => {
   it('stream thinking → tool call', async () => {
     async function* source() {
       yield JSON.stringify({
-        choices: [{ delta: { reasoning_details: [{ type: 'reasoning.text', text: 'deciding...' }] } }],
+        choices: [
+          { delta: { reasoning_details: [{ type: 'reasoning.text', text: 'deciding...' }] } },
+        ],
       });
       yield JSON.stringify({
-        choices: [{
-          delta: { tool_calls: [{ index: 0, id: 'tc1', function: { name: 'search', arguments: '{"q"' } }] },
-        }],
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, id: 'tc1', function: { name: 'search', arguments: '{"q"' } },
+              ],
+            },
+          },
+        ],
       });
       yield JSON.stringify({
-        choices: [{
-          delta: { tool_calls: [{ index: 0, function: { arguments: ':"test"}' } }] },
-          finish_reason: 'tool_calls',
-        }],
+        choices: [
+          {
+            delta: { tool_calls: [{ index: 0, function: { arguments: ':"test"}' } }] },
+            finish_reason: 'tool_calls',
+          },
+        ],
       });
       yield '[DONE]';
     }
@@ -570,7 +633,15 @@ describe('reasoning mapping', () => {
   it('streams foreign encrypted reasoning as an opaque proxy signature', async () => {
     async function* source() {
       yield JSON.stringify({
-        choices: [{ delta: { reasoning_details: [{ id: 'r1', type: 'reasoning.encrypted', data: 'opaque', format: 'openai-v2' }] } }],
+        choices: [
+          {
+            delta: {
+              reasoning_details: [
+                { id: 'r1', type: 'reasoning.encrypted', data: 'opaque', format: 'openai-v2' },
+              ],
+            },
+          },
+        ],
       });
       yield JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] });
       yield '[DONE]';
@@ -586,7 +657,8 @@ describe('reasoning mapping', () => {
         stored = detail;
         return 'proxy:rs_stream';
       },
-    )) output += chunk;
+    ))
+      output += chunk;
     expect(stored).toEqual({ data: 'opaque', format: 'openai-v2' });
     expect(output).toContain('proxy:rs_stream');
     expect(output).not.toContain('opaque');
@@ -595,15 +667,23 @@ describe('reasoning mapping', () => {
   it('stream multiple tool calls', async () => {
     async function* source() {
       yield JSON.stringify({
-        choices: [{
-          delta: { tool_calls: [{ index: 0, id: 'a', function: { name: 'fn_a', arguments: '{}' } }] },
-        }],
+        choices: [
+          {
+            delta: {
+              tool_calls: [{ index: 0, id: 'a', function: { name: 'fn_a', arguments: '{}' } }],
+            },
+          },
+        ],
       });
       yield JSON.stringify({
-        choices: [{
-          delta: { tool_calls: [{ index: 1, id: 'b', function: { name: 'fn_b', arguments: '{}' } }] },
-          finish_reason: 'tool_calls',
-        }],
+        choices: [
+          {
+            delta: {
+              tool_calls: [{ index: 1, id: 'b', function: { name: 'fn_b', arguments: '{}' } }],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
       });
       yield '[DONE]';
     }
