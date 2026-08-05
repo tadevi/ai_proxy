@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createReasoningStateStore } from '../src/reasoning-state.js';
+import {
+  createReasoningStateStore,
+  reasoningPayloadFingerprint,
+} from '../src/reasoning-state.js';
 
 const scope = { userId: 'user-a', connectionId: 'connection-a', upstreamModelId: 'model-a' };
 const stateScope = { ...scope };
@@ -9,6 +12,18 @@ function state(data: string, format = 'test') {
 }
 
 describe('reasoning state store', () => {
+  it('creates stable fingerprints without exposing payloads', () => {
+    expect(reasoningPayloadFingerprint(state('encrypted-payload', 'openai-v2'))).toBe(
+      reasoningPayloadFingerprint(state('encrypted-payload', 'openai-v2')),
+    );
+    expect(reasoningPayloadFingerprint(state('encrypted-payload', 'openai-v2'))).not.toBe(
+      reasoningPayloadFingerprint(state('encrypted-payload', 'poolside-v1')),
+    );
+    expect(reasoningPayloadFingerprint(state('encrypted-payload', 'openai-v2'))).not.toContain(
+      'encrypted-payload',
+    );
+  });
+
   it('store and resolve round-trips scoped state', async () => {
     const store = createReasoningStateStore();
     const handle = await store.store(state('encrypted-payload', 'openai-v2'));
