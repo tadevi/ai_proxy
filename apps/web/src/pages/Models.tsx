@@ -9,6 +9,7 @@ type ModelUsage = {
   inputTokens: string;
   outputTokens: string;
   cacheInputTokens: string;
+  cacheInputTokensReportedRequests: string;
 };
 
 function modelLabel(model: Model) {
@@ -43,7 +44,8 @@ export function Models() {
   }, [notice]);
 
   const testModel = useMutation({
-    mutationFn: (id: string) => api<{ message: string }>(`/api/models/${id}/test`, { method: 'POST' }),
+    mutationFn: (id: string) =>
+      api<{ message: string }>(`/api/models/${id}/test`, { method: 'POST' }),
     onMutate: (id) => {
       setTestingId(id);
       setNotice(null);
@@ -67,9 +69,12 @@ export function Models() {
   const filtered = (models.data ?? [])
     .filter((m) => !filterConnection || m.providerConnectionId === filterConnection)
     .sort((a, b) => {
-      const inputDifference = Number(usageByModel.get(b.id)?.inputTokens ?? 0) -
+      const inputDifference =
+        Number(usageByModel.get(b.id)?.inputTokens ?? 0) -
         Number(usageByModel.get(a.id)?.inputTokens ?? 0);
-      return inputDifference || a.displayName.localeCompare(b.displayName) || a.id.localeCompare(b.id);
+      return (
+        inputDifference || a.displayName.localeCompare(b.displayName) || a.id.localeCompare(b.id)
+      );
     });
   const byConnection = new Map<string, Model[]>();
   for (const m of filtered) {
@@ -173,7 +178,9 @@ export function Models() {
                     <td className="max-w-[16rem] truncate px-4 py-2.5">
                       <div className="truncate font-medium">
                         {modelLabel(m)}{' '}
-                        <span className="font-mono text-[11px] text-zinc-500">({m.upstreamModelId})</span>
+                        <span className="font-mono text-[11px] text-zinc-500">
+                          ({m.upstreamModelId})
+                        </span>
                       </div>
                     </td>
                     <td className="px-4 py-2.5 text-zinc-400">{m.providerConnectionName}</td>
@@ -187,10 +194,14 @@ export function Models() {
                       <StatusBadge model={m} />
                     </td>
                     <td className="px-4 py-2.5 text-right font-mono text-xs text-zinc-400">
-                      {u ? `${formatTokens(u.inputTokens)} / ${formatTokens(u.outputTokens)}` : '— / —'}
+                      {u
+                        ? `${formatTokens(u.inputTokens)} / ${formatTokens(u.outputTokens)}`
+                        : '— / —'}
                     </td>
                     <td className="px-4 py-2.5 text-right font-mono text-xs text-zinc-400">
-                      {u ? formatTokens(u.cacheInputTokens) : '—'}
+                      {u && Number(u.cacheInputTokensReportedRequests) > 0
+                        ? formatTokens(u.cacheInputTokens)
+                        : '—'}
                     </td>
                     <td className="px-4 py-2.5 text-right text-zinc-400">
                       {u ? Number(u.requestCount).toLocaleString() : 0}
@@ -270,7 +281,11 @@ function StatusBadge({ model }: { model: Model }) {
       <span
         className={`h-2 w-2 rounded-full ${model.latestTestStatus === 'healthy' ? 'bg-emerald-400' : model.latestTestStatus === 'failed' ? 'bg-red-400' : 'bg-zinc-600'}`}
       />
-      {model.latestTestStatus === 'healthy' ? 'Healthy' : model.latestTestStatus === 'failed' ? 'Failed' : '—'}
+      {model.latestTestStatus === 'healthy'
+        ? 'Healthy'
+        : model.latestTestStatus === 'failed'
+          ? 'Failed'
+          : '—'}
     </span>
   );
 }
@@ -391,7 +406,9 @@ function ModelCard({
         <div className="border-b border-zinc-800 px-6 py-4 text-center sm:border-r sm:border-b-0">
           <p className="text-xs text-zinc-500">Cache tokens</p>
           <p className="mt-1 text-[22px] font-medium">
-            {usage ? formatTokens(usage.cacheInputTokens) : '—'}
+            {usage && Number(usage.cacheInputTokensReportedRequests) > 0
+              ? formatTokens(usage.cacheInputTokens)
+              : '—'}
           </p>
         </div>
         <div className="px-6 py-4 text-center">

@@ -30,6 +30,7 @@ export function latestErrorMessage(error?: Record<string, unknown> | null) {
 export function formatTokens(value: string | number) {
   const tokens = Number(value);
   if (!Number.isFinite(tokens)) return '—';
+  if (tokens < 1_000) return String(tokens);
   const [suffix, divisor]: [string, number] =
     tokens >= 1_000_000_000
       ? ['B', 1_000_000_000]

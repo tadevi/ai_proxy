@@ -3,8 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
 import { Modal, useModalId } from '../Modal';
 
-function formatTokens(tokens?: number) {
+function formatTokens(tokens: number | null | undefined) {
   if (tokens === undefined || tokens === null) return '—';
+  if (tokens < 1_000) return String(tokens);
   const [suffix, divisor]: [string, number] =
     tokens >= 1_000_000_000
       ? ['B', 1_000_000_000]
@@ -29,7 +30,7 @@ type Log = {
   timeToFirstTokenMs?: number;
   inputTokens?: number;
   outputTokens?: number;
-  cacheInputTokens?: number;
+  cacheInputTokens: number | null;
   fallbackCount: number;
   errorCategory?: string;
   providerError?: Record<string, unknown>;
@@ -67,11 +68,11 @@ function resolvedModelDetails(value?: string) {
 
 function tokenMetrics(log: Log) {
   const input = log.inputTokens ?? 0;
-  const cache = log.cacheInputTokens ?? 0;
+  const cache = log.cacheInputTokens;
   const isAnthropic = log.apiFormat === 'anthropic_compatible';
   return {
-    totalInput: isAnthropic ? input + cache : input,
-    nonCacheInput: isAnthropic ? input : Math.max(0, input - cache),
+    totalInput: isAnthropic ? input + (cache ?? 0) : input,
+    nonCacheInput: isAnthropic ? input : Math.max(0, input - (cache ?? 0)),
     cacheInput: cache,
   };
 }
@@ -137,7 +138,7 @@ export function Logs() {
                   <span className="block text-zinc-400">
                     {resolvedModelLabel(l.resolvedUpstreamModel)}
                   </span>
-                  {(l.cliproxyAccountLabel || l.cliproxyAccountPrefix) ? (
+                  {l.cliproxyAccountLabel || l.cliproxyAccountPrefix ? (
                     <span className="block text-xs text-zinc-500">
                       {l.cliproxyAccountLabel ?? l.cliproxyAccountPrefix}
                     </span>

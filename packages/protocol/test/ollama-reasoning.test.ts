@@ -6,6 +6,7 @@ import {
   openAIToAnthropic,
   reasoningWireFormatForModel,
 } from '../src/index.js';
+import type { StreamUsage } from '../src/index.js';
 
 const request = anthropicRequestSchema.parse({
   model: 'claude-code',
@@ -21,6 +22,17 @@ const request = anthropicRequestSchema.parse({
     { role: 'user', content: 'Continue.' },
   ],
 });
+
+async function* trailingUsageStream(usage: Record<string, unknown>) {
+  yield JSON.stringify({
+    choices: [{ index: 0, delta: { content: 'OK' }, finish_reason: 'stop' }],
+  });
+  yield JSON.stringify({
+    choices: [],
+    usage,
+  });
+  yield '[DONE]';
+}
 
 describe('Ollama reasoning compatibility', () => {
   it('selects the reasoning codec for Ollama-prefixed and Cloud model ids', () => {
@@ -139,5 +151,65 @@ describe('Ollama reasoning compatibility', () => {
     });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('reasoning.response.detected'));
     warn.mockRestore();
+  });
+
+  it('emits trailing usage without cache details as undefined cacheInputTokens', async () => {
+    const usage: StreamUsage = {};
+    for await (const chunk of openAIStreamToAnthropic(
+      trailingUsageStream({
+        prompt_tokens: 181,
+        completion_tokens: 23,
+        total_tokens: 204,
+      }),
+      'Ollama/minimax-m3',
+      'msg_cache',
+      usage,
+    )) {
+      void chunk;
+    }
+
+    expect(usage).toEqual({
+      inputTokens: 181,
+      outputTokens: 23,
+    });
+    expect(usage.cacheInputTokens).toBeUndefined();
+  });
+
+  it('maps explicit zero cached_tokens to cacheInputTokens 0', async () => {
+    const usage: StreamUsage = {};
+    for await (const chunk of openAIStreamToAnthropic(
+      trailingUsageStream({
+        prompt_tokens: 181,
+        completion_tokens: 23,
+        prompt_tokens_details: { cached_tokens: 0 },
+      }),
+      'Ollama/minimax-m3',
+      'msg_zero',
+      usage,
+    )) {
+      void chunk;
+    }
+
+    expect(usage.cacheInputTokens).toBe(0);
+  });
+
+  it('maps positive cached_tokens to cacheInputTokens', async () => {
+    const usage: StreamUsage = {};
+    for await (const chunk of openAIStreamToAnthropic(
+      trailingUsageStream({
+        prompt_tokens: 181,
+        completion_tokens: 23,
+        prompt_tokens_details: { cached_tokens: 120 },
+      }),
+      'Ollama/minimax-m3',
+      'msg_pos',
+      usage,
+    )) {
+      void chunk;
+    }
+
+    expect(usage.cacheInputTokens).toBe(120);
+    expect(usage.inputTokens).toBe(181);
+    expect(usage.outputTokens).toBe(23);
   });
 });
