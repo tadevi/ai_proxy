@@ -13,6 +13,15 @@ import {
 } from './reasoning.js';
 
 type Json = Record<string, unknown>;
+
+function utf8Bytes(value: string) {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+function logReasoningContent(event: string, details: Record<string, unknown>) {
+  console.warn(`[warn] ${event} ${JSON.stringify(details)}`);
+}
+
 export function normalizeThinking(raw: unknown, outputConfig?: unknown): NormalizedThinking {
   if (!raw || typeof raw !== 'object') return { enabled: false };
   const v = raw as Json;
@@ -153,18 +162,21 @@ export async function anthropicToOpenAI(
               resolveProxySignature,
             );
 
-      // An Anthropic assistant turn must remain one OpenAI assistant message. Splitting
-      // text, reasoning, and tool calls across messages breaks tool-result ordering and
-      // can detach reasoning_details from the tool call that produced them.
       const assistantMessage: Json = {
         role: 'assistant',
         content: regular.length ? textContent(regular) : null,
       };
       if (toolCalls.length) assistantMessage.tool_calls = toolCalls;
       if (historyReasoning) {
-        if (reasoningWireFormat === 'reasoning_content')
+        if (reasoningWireFormat === 'reasoning_content') {
           assistantMessage.reasoning_content = historyReasoning;
-        else assistantMessage.reasoning_details = historyReasoning;
+          logReasoningContent('reasoning.history.replayed', {
+            wireFormat: 'reasoning_content',
+            payloadBytes: utf8Bytes(historyReasoning),
+            thinkingBlockCount: message.content.filter((block) => block.type === 'thinking').length,
+            toolCallCount: toolCalls.length,
+          });
+        } else assistantMessage.reasoning_details = historyReasoning;
       }
       messages.push(assistantMessage);
       continue;
@@ -232,6 +244,12 @@ export async function openAIToAnthropic(
   const content: Json[] = [];
 
   if (typeof message.reasoning_content === 'string' && message.reasoning_content) {
+    logReasoningContent('reasoning.response.detected', {
+      wireFormat: 'reasoning_content',
+      mode: 'non_streaming',
+      payloadBytes: utf8Bytes(message.reasoning_content),
+      toolCallCount: Array.isArray(message.tool_calls) ? message.tool_calls.length : 0,
+    });
     content.push({ type: 'thinking', thinking: message.reasoning_content });
   }
 
