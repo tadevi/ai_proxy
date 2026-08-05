@@ -34,8 +34,21 @@ function normalizedEvent(event: Json) {
   };
 }
 
-async function* normalizeOllamaReasoning(source: AsyncIterable<string>) {
+function recordUsage(event: Json, usage?: StreamUsage) {
+  if (!usage) return;
+  const upstreamUsage = event.usage as Json | undefined;
+  if (typeof upstreamUsage?.prompt_tokens === 'number')
+    usage.inputTokens = upstreamUsage.prompt_tokens;
+  if (typeof upstreamUsage?.completion_tokens === 'number')
+    usage.outputTokens = upstreamUsage.completion_tokens;
+}
+
+async function* normalizeOllamaReasoning(
+  source: AsyncIterable<string>,
+  usage?: StreamUsage,
+) {
   let pendingFinish: Json | undefined;
+  let reasoningDetected = false;
 
   for await (const data of source) {
     if (data === '[DONE]') {
@@ -52,8 +65,22 @@ async function* normalizeOllamaReasoning(source: AsyncIterable<string>) {
       continue;
     }
 
+    recordUsage(event, usage);
+
     const choices = event.choices as Json[] | undefined;
     const choice = choices?.[0];
+    const delta = choice?.delta as Json | undefined;
+    if (!reasoningDetected && typeof delta?.reasoning === 'string' && delta.reasoning) {
+      reasoningDetected = true;
+      console.warn(
+        `[warn] reasoning.response.detected ${JSON.stringify({
+          wireFormat: 'reasoning',
+          mode: 'streaming',
+          payloadBytes: new TextEncoder().encode(delta.reasoning).byteLength,
+        })}`,
+      );
+    }
+
     if (choice?.finish_reason && event.usage === undefined) {
       pendingFinish = normalizedEvent(event);
       continue;
@@ -79,7 +106,7 @@ export function openAIStreamToAnthropic(
   onEncryptedForeign?: (detail: { data: string; format?: string; id?: string }) => Promise<string>,
 ) {
   return baseOpenAIStreamToAnthropic(
-    normalizeOllamaReasoning(source),
+    normalizeOllamaReasoning(source, usage),
     model,
     id,
     usage,
