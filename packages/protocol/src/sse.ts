@@ -3,6 +3,24 @@ export type StreamUsage = {
   inputTokens?: number;
   outputTokens?: number;
   cacheInputTokens?: number;
+  reasoningDetails?: boolean;
+};
+
+type ReasoningBlockState = {
+  anthropicIndex: number;
+  started: boolean;
+  stopped: boolean;
+  signature?: string;
+  encryptedBuffer?: string;
+  encryptedFormat?: string;
+};
+
+type StreamState = {
+  nextAnthropicBlockIndex: number;
+  reasoningBlocks: Map<string, ReasoningBlockState>;
+  toolCallBlocks: Map<number, number>;
+  textBlockIndex?: number;
+  textStarted: boolean;
 };
 
 function recordOpenAIUsage(event: Json, usage?: StreamUsage) {
@@ -25,6 +43,7 @@ export async function* openAIStreamToAnthropic(
   model: string,
   id = `msg_${crypto.randomUUID().replaceAll('-', '')}`,
   usage?: StreamUsage,
+  onEncryptedForeign?: (detail: { data: string; format?: string; id?: string }) => void,
 ) {
   yield encode('message_start', {
     type: 'message_start',
@@ -39,9 +58,67 @@ export async function* openAIStreamToAnthropic(
       usage: { input_tokens: 0, output_tokens: 0 },
     },
   });
-  let textStarted = false;
-  let nextIndex = 0;
-  const toolIndexes = new Map<number, number>();
+
+  const state: StreamState = {
+    nextAnthropicBlockIndex: 0,
+    reasoningBlocks: new Map(),
+    toolCallBlocks: new Map(),
+    textStarted: false,
+  };
+
+  const finalizeReasoningBlock = (rb: ReasoningBlockState): string[] => {
+    const events: string[] = [];
+    if (!rb.started || rb.stopped) return events;
+    if (rb.encryptedBuffer && onEncryptedForeign) {
+      onEncryptedForeign({
+        data: rb.encryptedBuffer,
+        format: rb.encryptedFormat,
+      });
+    }
+    if (rb.signature) {
+      events.push(encode('content_block_delta', {
+        type: 'content_block_delta',
+        index: rb.anthropicIndex,
+        delta: { type: 'signature_delta', signature: rb.signature },
+      }));
+    }
+    events.push(encode('content_block_stop', {
+      type: 'content_block_stop',
+      index: rb.anthropicIndex,
+    }));
+    rb.stopped = true;
+    return events;
+  };
+
+  const closeActiveBlocks = (): string[] => {
+    const events: string[] = [];
+    if (state.textStarted && state.textBlockIndex != null) {
+      events.push(encode('content_block_stop', {
+        type: 'content_block_stop',
+        index: state.textBlockIndex,
+      }));
+      state.textStarted = false;
+    }
+    for (const rb of state.reasoningBlocks.values()) {
+      events.push(...finalizeReasoningBlock(rb));
+    }
+    for (const index of state.toolCallBlocks.values()) {
+      events.push(encode('content_block_stop', { type: 'content_block_stop', index }));
+    }
+    return events;
+  };
+
+  const allocIndex = () => state.nextAnthropicBlockIndex++;
+
+  const getOrCreateReasoningBlock = (detailId: string): ReasoningBlockState => {
+    let rb = state.reasoningBlocks.get(detailId);
+    if (!rb) {
+      rb = { anthropicIndex: allocIndex(), started: false, stopped: false };
+      state.reasoningBlocks.set(detailId, rb);
+    }
+    return rb;
+  };
+
   for await (const data of source) {
     if (data === '[DONE]') break;
     let event: Json;
@@ -54,32 +131,121 @@ export async function* openAIStreamToAnthropic(
     const choice = (event.choices as Json[] | undefined)?.[0];
     if (!choice) continue;
     const delta = (choice.delta as Json | undefined) ?? {};
+
+    // ── Reasoning deltas ──
+    const reasoningParts = delta.reasoning_details as Json[] | undefined;
+    if (reasoningParts?.length) {
+      if (usage) usage.reasoningDetails = true;
+      for (const part of reasoningParts) {
+        const partType = typeof part.type === 'string' ? part.type : '';
+        const partId =
+          typeof part.id === 'string'
+            ? part.id
+            : `reasoning:${typeof part.index === 'number' ? part.index : 0}`;
+
+        if (partType === 'reasoning.text') {
+          const rb = getOrCreateReasoningBlock(partId);
+          if (!rb.started) {
+            // Close text block if open before starting reasoning
+            if (state.textStarted && state.textBlockIndex != null) {
+              yield encode('content_block_stop', {
+                type: 'content_block_stop',
+                index: state.textBlockIndex,
+              });
+              state.textStarted = false;
+            }
+            yield encode('content_block_start', {
+              type: 'content_block_start',
+              index: rb.anthropicIndex,
+              content_block: { type: 'thinking', thinking: '' },
+            });
+            rb.started = true;
+          }
+          if (typeof part.text === 'string' && part.text) {
+            yield encode('content_block_delta', {
+              type: 'content_block_delta',
+              index: rb.anthropicIndex,
+              delta: { type: 'thinking_delta', thinking: part.text },
+            });
+          }
+          if (typeof part.signature === 'string' && part.signature) {
+            rb.signature = part.signature;
+          }
+        } else if (partType === 'reasoning.summary') {
+          const rb = getOrCreateReasoningBlock(partId);
+          if (!rb.started) {
+            if (state.textStarted && state.textBlockIndex != null) {
+              yield encode('content_block_stop', {
+                type: 'content_block_stop',
+                index: state.textBlockIndex,
+              });
+              state.textStarted = false;
+            }
+            yield encode('content_block_start', {
+              type: 'content_block_start',
+              index: rb.anthropicIndex,
+              content_block: { type: 'thinking', thinking: '' },
+            });
+            rb.started = true;
+          }
+          if (typeof part.summary === 'string' && part.summary) {
+            yield encode('content_block_delta', {
+              type: 'content_block_delta',
+              index: rb.anthropicIndex,
+              delta: { type: 'thinking_delta', thinking: part.summary },
+            });
+          }
+        } else if (partType === 'reasoning.encrypted') {
+          // Buffer encrypted data; don't emit as thinking_delta
+          const rb = getOrCreateReasoningBlock(partId);
+          if (typeof part.data === 'string') {
+            rb.encryptedBuffer = (rb.encryptedBuffer ?? '') + part.data;
+            if (typeof part.format === 'string') rb.encryptedFormat = part.format;
+          }
+        }
+      }
+    }
+
+    // Close finished reasoning blocks (when content delta arrives after reasoning)
+    if (typeof delta.content === 'string' || delta.tool_calls) {
+      for (const rb of state.reasoningBlocks.values()) {
+        for (const event of finalizeReasoningBlock(rb)) yield event;
+      }
+    }
+
+    // ── Text content deltas ──
     if (typeof delta.content === 'string') {
-      if (!textStarted) {
-        textStarted = true;
+      if (!state.textStarted) {
+        state.textBlockIndex = allocIndex();
+        state.textStarted = true;
         yield encode('content_block_start', {
           type: 'content_block_start',
-          index: nextIndex,
+          index: state.textBlockIndex,
           content_block: { type: 'text', text: '' },
         });
       }
       yield encode('content_block_delta', {
         type: 'content_block_delta',
-        index: nextIndex,
+        index: state.textBlockIndex!,
         delta: { type: 'text_delta', text: delta.content },
       });
     }
+
+    // ── Tool call deltas ──
     for (const call of (delta.tool_calls as Json[] | undefined) ?? []) {
       const sourceIndex = Number(call.index ?? 0);
-      let index = toolIndexes.get(sourceIndex);
+      let index = state.toolCallBlocks.get(sourceIndex);
       if (index === undefined) {
-        if (textStarted) {
-          yield encode('content_block_stop', { type: 'content_block_stop', index: nextIndex });
-          textStarted = false;
-          nextIndex++;
+        // Close text block if open
+        if (state.textStarted && state.textBlockIndex != null) {
+          yield encode('content_block_stop', {
+            type: 'content_block_stop',
+            index: state.textBlockIndex,
+          });
+          state.textStarted = false;
         }
-        index = nextIndex++;
-        toolIndexes.set(sourceIndex, index);
+        index = allocIndex();
+        state.toolCallBlocks.set(sourceIndex, index);
         const fn = (call.function as Json | undefined) ?? {};
         yield encode('content_block_start', {
           type: 'content_block_start',
@@ -95,17 +261,15 @@ export async function* openAIStreamToAnthropic(
           delta: { type: 'input_json_delta', partial_json: args },
         });
     }
+
+    // ── Finish ──
     if (choice.finish_reason) {
-      if (textStarted)
-        yield encode('content_block_stop', { type: 'content_block_stop', index: nextIndex });
-      for (const index of toolIndexes.values())
-        yield encode('content_block_stop', { type: 'content_block_stop', index });
-      const reason =
-        choice.finish_reason === 'tool_calls'
-          ? 'tool_use'
-          : choice.finish_reason === 'length'
-            ? 'max_tokens'
-            : 'end_turn';
+      for (const event of closeActiveBlocks()) yield event;
+      const hasToolCalls = state.toolCallBlocks.size > 0;
+      const reason = mapStreamFinishReason(
+        typeof choice.finish_reason === 'string' ? choice.finish_reason : null,
+        hasToolCalls,
+      );
       yield encode('message_delta', {
         type: 'message_delta',
         delta: { stop_reason: reason, stop_sequence: null },
@@ -114,6 +278,20 @@ export async function* openAIStreamToAnthropic(
     }
   }
   yield encode('message_stop', { type: 'message_stop' });
+}
+
+function mapStreamFinishReason(reason: string | null, hasToolCalls: boolean): string {
+  if (hasToolCalls || reason === 'tool_calls') return 'tool_use';
+  switch (reason) {
+    case 'stop':
+      return 'end_turn';
+    case 'length':
+      return 'max_tokens';
+    case 'content_filter':
+      return 'refusal';
+    default:
+      return 'end_turn';
+  }
 }
 
 export async function* parseSSE(body: ReadableStream<Uint8Array>) {

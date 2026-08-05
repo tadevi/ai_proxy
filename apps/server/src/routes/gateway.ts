@@ -25,10 +25,13 @@ import {
   openAIToAnthropic,
   parseSSE,
   type AnthropicRequest,
+  type ReasoningCapabilities,
   type Rule,
   type StreamUsage,
+  type UpstreamContext,
 } from '@gateway/protocol';
 import { gatewayAuth } from '../auth.js';
+import { createReasoningStateStore } from '../reasoning-state.js';
 import { logWarn } from '../log.js';
 import { decryptCredential, validateUpstreamUrl } from '../security.js';
 
@@ -232,6 +235,8 @@ async function readProviderError(response: Response): Promise<ProviderErrorDetai
   }
   return details;
 }
+
+const reasoningState = createReasoningStateStore();
 
 export async function gatewayRoutes(app: FastifyInstance) {
   app.get(
@@ -749,6 +754,7 @@ async function handleMessage(
             outputTokens: result.usage?.outputTokens,
             cacheInputTokens: result.usage?.cacheInputTokens,
             thinkingConfig: thinkingLogConfig(request),
+            reasoningDetails: result.usage?.reasoningDetails ?? null,
             fallbackCount: index,
             skippedRoutes: skipped,
           });
@@ -775,6 +781,10 @@ async function handleMessage(
       const usage = body.usage as Record<string, number> | undefined;
       const cacheTokens =
         (usage?.cache_creation_input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0);
+      const content = body.content as Array<Record<string, unknown>> | undefined;
+      const hasReasoningDetails = content?.some(
+        (block) => block.type === 'thinking' || block.type === 'redacted_thinking',
+      ) ?? false;
       await recordModelSuccess(app, attempt.resolved.model.id);
       await writeLog(app, {
         userId,
@@ -789,6 +799,7 @@ async function handleMessage(
         outputTokens: usage?.output_tokens,
         cacheInputTokens: cacheTokens || undefined,
         thinkingConfig: thinkingLogConfig(request),
+        reasoningDetails: hasReasoningDetails,
         fallbackCount: index,
         skippedRoutes: skipped,
       });
@@ -958,7 +969,20 @@ async function callModel(
     let body: Record<string, unknown>;
     let headers: Record<string, string>;
     if (model.apiFormat === 'openai_compatible') {
-      body = anthropicToOpenAI(requestForModel, model.upstreamModelId);
+      const capabilities: ReasoningCapabilities = {
+        supportsReasoning: model.supportsReasoning === 'yes',
+        supportsReasoningBudget: model.supportsReasoning === 'yes',
+        supportsReasoningEffort: model.supportsReasoning === 'yes',
+        supportsAdaptiveReasoning: model.supportsReasoning === 'yes',
+      };
+      body = anthropicToOpenAI(requestForModel, model.upstreamModelId, capabilities);
+      if (body.reasoning) {
+        logWarn('reasoning config mapped for upstream', {
+          requestId: clientModel,
+          upstreamModelId: model.upstreamModelId,
+          reasoning: body.reasoning,
+        });
+      }
       body = applyRules(
         body,
         rules,
@@ -1013,7 +1037,18 @@ async function callModel(
       const usage: StreamUsage = {};
       const source =
         model.apiFormat === 'openai_compatible'
-          ? openAIStreamToAnthropic(parseSSE(response.body), clientModel, undefined, usage)
+          ? openAIStreamToAnthropic(parseSSE(response.body), clientModel, undefined, usage, async (detail) => {
+              const handle = await reasoningState.store({
+                data: detail.data,
+                format: detail.format ?? 'unknown',
+                createdAt: Date.now(),
+              });
+              logWarn('foreign encrypted reasoning stored (stream)', {
+                upstreamModelId: model.upstreamModelId,
+                format: detail.format,
+                handle,
+              });
+            })
           : rawStream(response.body, usage);
       streamOwnsCleanup = true;
       return {
@@ -1025,7 +1060,20 @@ async function callModel(
     return {
       body:
         model.apiFormat === 'openai_compatible'
-          ? openAIToAnthropic(json, clientModel)
+          ? openAIToAnthropic(json, clientModel, {
+              upstreamProvider: connection.displayName === 'CLIProxyAPI' ? undefined : connection.displayName,
+            }, async (detail) => {
+              const handle = await reasoningState.store({
+                data: detail.data,
+                format: detail.format ?? 'unknown',
+                createdAt: Date.now(),
+              });
+              logWarn('foreign encrypted reasoning stored', {
+                upstreamModelId: model.upstreamModelId,
+                format: detail.format,
+                handle,
+              });
+            })
           : { ...json, model: clientModel },
     };
   } catch (error) {

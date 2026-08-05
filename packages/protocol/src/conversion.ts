@@ -1,4 +1,10 @@
-import type { AnthropicRequest, NormalizedThinking } from './types.js';
+import type { AnthropicRequest, NormalizedThinking, ReasoningCapabilities, UpstreamContext } from './types.js';
+import {
+  anthropicHistoryToReasoningDetails,
+  buildReasoningConfig,
+  mapFinishReason,
+  reasoningDetailsToAnthropicBlocks,
+} from './reasoning.js';
 
 type Json = Record<string, unknown>;
 export function normalizeThinking(raw: unknown, outputConfig?: unknown): NormalizedThinking {
@@ -69,7 +75,11 @@ function textContent(content: string | Array<Json>): string | Array<Json> {
   return result;
 }
 
-export function anthropicToOpenAI(request: AnthropicRequest, upstreamModel: string): Json {
+export function anthropicToOpenAI(
+  request: AnthropicRequest,
+  upstreamModel: string,
+  capabilities?: ReasoningCapabilities,
+): Json {
   const messages: Json[] = [];
   if (request.system)
     messages.push({
@@ -87,7 +97,9 @@ export function anthropicToOpenAI(request: AnthropicRequest, upstreamModel: stri
     const regular = message.content.filter(
       (b) => b.type === 'text' || b.type === 'image',
     ) as unknown as Json[];
+    const assistantMsgStartIndex = messages.length;
     if (regular.length) messages.push({ role: message.role, content: textContent(regular) });
+
     for (const block of message.content) {
       if (
         block.type === 'tool_use' &&
@@ -129,6 +141,25 @@ export function anthropicToOpenAI(request: AnthropicRequest, upstreamModel: stri
         });
       }
     }
+
+    // Map assistant reasoning blocks from history into reasoning_details.
+    // Attach to the first assistant message produced from this turn (text or tool_calls).
+    if (message.role === 'assistant') {
+      const reasoningDetails = anthropicHistoryToReasoningDetails(
+        message.content as unknown as Json[],
+      );
+      if (reasoningDetails) {
+        for (let i = assistantMsgStartIndex; i < messages.length; i++) {
+          if (messages[i]!.role === 'assistant') {
+            messages[i]!.reasoning_details = [
+              ...((messages[i]!.reasoning_details as Json[]) ?? []),
+              ...reasoningDetails,
+            ];
+            break;
+          }
+        }
+      }
+    }
   }
   const raw = request as Record<string, unknown>;
   const body: Json = {
@@ -154,13 +185,39 @@ export function anthropicToOpenAI(request: AnthropicRequest, upstreamModel: stri
         : toolChoice.type === 'any'
           ? 'required'
           : 'auto';
+
+  // Map Anthropic thinking config → OpenRouter reasoning object
+  if (capabilities) {
+    const thinking = normalizeThinking(request.thinking, request.output_config);
+    const reasoningConfig = buildReasoningConfig(thinking, capabilities, request);
+    if (reasoningConfig) body.reasoning = reasoningConfig;
+  }
+
   return body;
 }
 
-export function openAIToAnthropic(response: Json, clientModel: string) {
+export function openAIToAnthropic(
+  response: Json,
+  clientModel: string,
+  context?: UpstreamContext,
+  onEncryptedForeign?: (detail: { data: string; format?: string; id?: string }) => void,
+) {
   const choice = (response.choices as Json[] | undefined)?.[0] ?? {};
   const message = (choice.message as Json | undefined) ?? {};
   const content: Json[] = [];
+
+  // Convert reasoning_details → Anthropic thinking/redacted_thinking blocks
+  // These must come before text and tool_use blocks.
+  const reasoningDetails = message.reasoning_details as unknown[] | undefined;
+  if (reasoningDetails?.length) {
+    const thinkingBlocks = reasoningDetailsToAnthropicBlocks(
+      reasoningDetails,
+      context ?? {},
+      onEncryptedForeign,
+    );
+    content.push(...thinkingBlocks);
+  }
+
   if (typeof message.content === 'string' && message.content)
     content.push({ type: 'text', text: message.content });
   for (const call of (message.tool_calls as Json[] | undefined) ?? []) {
@@ -173,9 +230,9 @@ export function openAIToAnthropic(response: Json, clientModel: string) {
     }
     content.push({ type: 'tool_use', id: call.id, name: fn.name, input });
   }
-  const finish = choice.finish_reason;
-  const stopReason =
-    finish === 'tool_calls' ? 'tool_use' : finish === 'length' ? 'max_tokens' : 'end_turn';
+  const finish = choice.finish_reason as string | null | undefined;
+  const hasToolCalls = Boolean((message.tool_calls as Json[] | undefined)?.length);
+  const stopReason = mapFinishReason(finish, hasToolCalls) ?? 'end_turn';
   const usage = (response.usage as Json | undefined) ?? {};
   const details = usage.prompt_tokens_details as Json | undefined;
   return {

@@ -82,3 +82,60 @@ export type Rule = {
   position: number;
   config: Record<string, unknown>;
 };
+
+// ── Reasoning detail types (OpenRouter / OpenAI reasoning_details) ──
+export type ReasoningDetailText = {
+  type: 'reasoning.text';
+  text: string;
+  signature?: string | null;
+  id?: string | null;
+  format?: string;
+  index?: number;
+};
+
+export type ReasoningDetailSummary = {
+  type: 'reasoning.summary';
+  summary: string;
+  id?: string | null;
+  format?: string;
+  index?: number;
+};
+
+export type ReasoningDetailEncrypted = {
+  type: 'reasoning.encrypted';
+  data: string;
+  id?: string | null;
+  format?: string;
+  index?: number;
+};
+
+export type ReasoningDetail = ReasoningDetailText | ReasoningDetailSummary | ReasoningDetailEncrypted;
+
+// ── Model capabilities for reasoning ──
+export type ReasoningCapabilities = {
+  supportsReasoning: boolean;
+  supportsReasoningBudget: boolean;
+  supportsReasoningEffort: boolean;
+  supportsAdaptiveReasoning: boolean;
+};
+
+// ── Upstream context passed to conversion functions ──
+export type UpstreamContext = {
+  upstreamProvider?: string;
+};
+
+// ── Opaque reasoning state for round-tripping encrypted blocks ──
+export type ProviderReasoningState = {
+  data: string;
+  format: string;
+  provider?: string;
+  signature?: string;
+  model?: string;
+  createdAt: number;
+};
+
+export type ReasoningStateHandle = {
+  store(state: ProviderReasoningState): Promise<string>;
+  resolve(handle: string): Promise<ProviderReasoningState | null>;
+  delete(handle: string): Promise<void>;
+};
