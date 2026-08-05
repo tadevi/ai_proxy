@@ -119,7 +119,7 @@ export type ReasoningCapabilities = {
   supportsAdaptiveReasoning: boolean;
 };
 
-export type ReasoningWireFormat = 'reasoning_details' | 'reasoning_content';
+export type ReasoningWireFormat = 'reasoning_details' | 'reasoning_content' | 'reasoning';
 
 // ── Upstream context passed to conversion functions ──
 export type UpstreamContext = {
