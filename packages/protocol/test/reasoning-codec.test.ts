@@ -47,7 +47,6 @@ describe('reasoning codecs', () => {
           type: 'reasoning.text',
           text: 'plan',
           signature: 'sig',
-          format: 'anthropic-claude-v1',
         },
       ],
     });
