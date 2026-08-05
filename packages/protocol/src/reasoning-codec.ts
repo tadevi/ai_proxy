@@ -31,7 +31,7 @@ export type ReasoningCodecContext = {
 };
 
 export type EncodedReasoning = {
-  field: 'reasoning_content' | 'reasoning_details';
+  field: 'reasoning' | 'reasoning_content' | 'reasoning_details';
   value: string | Json[];
 };
 
@@ -72,36 +72,43 @@ function emit(
   });
 }
 
-export const reasoningContentCodec: ReasoningCodec = {
-  wireFormat: 'reasoning_content',
+function createPlaintextReasoningCodec(
+  wireFormat: 'reasoning' | 'reasoning_content',
+): ReasoningCodec {
+  return {
+    wireFormat,
 
-  async encodeHistory(content, context) {
-    const value = thinkingText(content);
-    if (!value) return undefined;
+    async encodeHistory(content, context) {
+      const value = thinkingText(content);
+      if (!value) return undefined;
 
-    emit(context, 'reasoning.history.replayed', {
-      wireFormat: this.wireFormat,
-      payloadBytes: utf8Bytes(value),
-      thinkingBlockCount: content.filter((block) => block.type === 'thinking').length,
-    });
+      emit(context, 'reasoning.history.replayed', {
+        wireFormat: this.wireFormat,
+        payloadBytes: utf8Bytes(value),
+        thinkingBlockCount: content.filter((block) => block.type === 'thinking').length,
+      });
 
-    return { field: 'reasoning_content', value };
-  },
+      return { field: wireFormat, value };
+    },
 
-  async decodeResponse(message, context) {
-    const value = message.reasoning_content;
-    if (typeof value !== 'string' || !value) return [];
+    async decodeResponse(message, context) {
+      const value = message[wireFormat];
+      if (typeof value !== 'string' || !value) return [];
 
-    emit(context, 'reasoning.response.detected', {
-      wireFormat: this.wireFormat,
-      mode: 'non_streaming',
-      payloadBytes: utf8Bytes(value),
-      toolCallCount: Array.isArray(message.tool_calls) ? message.tool_calls.length : 0,
-    });
+      emit(context, 'reasoning.response.detected', {
+        wireFormat: this.wireFormat,
+        mode: 'non_streaming',
+        payloadBytes: utf8Bytes(value),
+        toolCallCount: Array.isArray(message.tool_calls) ? message.tool_calls.length : 0,
+      });
 
-    return [{ type: 'thinking', thinking: value }];
-  },
-};
+      return [{ type: 'thinking', thinking: value }];
+    },
+  };
+}
+
+export const reasoningCodec = createPlaintextReasoningCodec('reasoning');
+export const reasoningContentCodec = createPlaintextReasoningCodec('reasoning_content');
 
 export const reasoningDetailsCodec: ReasoningCodec = {
   wireFormat: 'reasoning_details',
@@ -127,6 +134,7 @@ export const reasoningDetailsCodec: ReasoningCodec = {
 };
 
 const codecs: Record<ReasoningWireFormat, ReasoningCodec> = {
+  reasoning: reasoningCodec,
   reasoning_content: reasoningContentCodec,
   reasoning_details: reasoningDetailsCodec,
 };
@@ -140,7 +148,7 @@ export async function decodeReasoningResponse(
   context?: ReasoningCodecContext,
 ): Promise<Json[]> {
   const blocks: Json[] = [];
-  for (const codec of [reasoningContentCodec, reasoningDetailsCodec]) {
+  for (const codec of [reasoningCodec, reasoningContentCodec, reasoningDetailsCodec]) {
     blocks.push(...(await codec.decodeResponse(message, context)));
   }
   return blocks;
