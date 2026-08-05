@@ -90,6 +90,17 @@ function anthropicHistoryToReasoningContent(content: Json[]): string | undefined
   return parts.length ? parts.join('\n\n') : undefined;
 }
 
+function toolResultContent(resultContent: unknown): string {
+  if (typeof resultContent === 'string') return resultContent;
+  if (!Array.isArray(resultContent)) return '';
+  return resultContent
+    .flatMap((item) => {
+      const value = item as Json;
+      return value.type === 'text' && typeof value.text === 'string' ? [value.text] : [];
+    })
+    .join('\n');
+}
+
 export async function anthropicToOpenAI(
   request: AnthropicRequest,
   upstreamModel: string,
@@ -106,63 +117,34 @@ export async function anthropicToOpenAI(
           ? request.system
           : request.system.map((b) => b.text).join('\n'),
     });
+
   for (const message of request.messages) {
     if (typeof message.content === 'string') {
       messages.push({ role: message.role, content: message.content });
       continue;
     }
-    const regular = message.content.filter(
-      (b) => b.type === 'text' || b.type === 'image',
-    ) as unknown as Json[];
-    const assistantMsgStartIndex = messages.length;
-    if (regular.length) messages.push({ role: message.role, content: textContent(regular) });
 
-    for (const block of message.content) {
-      if (
-        block.type === 'tool_use' &&
-        typeof (block as Json).id === 'string' &&
-        typeof (block as Json).name === 'string'
-      ) {
-        const tool = block as Json;
-        messages.push({
-          role: 'assistant',
-          content: null,
-          tool_calls: [
-            {
-              id: tool.id,
-              type: 'function',
-              function: { name: tool.name, arguments: JSON.stringify(tool.input) },
-            },
-          ],
-        });
-      }
-      if (block.type === 'tool_result' && typeof (block as Json).tool_use_id === 'string') {
-        const result = block as Json;
-        const resultContent = result.content;
-        messages.push({
-          role: 'tool',
-          tool_call_id: result.tool_use_id,
-          content:
-            typeof resultContent === 'string'
-              ? resultContent
-              : Array.isArray(resultContent)
-                ? resultContent
-                    .flatMap((item) => {
-                      const value = item as Json;
-                      return value.type === 'text' && typeof value.text === 'string'
-                        ? [value.text]
-                        : [];
-                    })
-                    .join('\n')
-                : '',
-        });
-      }
-    }
-
-    // Map assistant reasoning blocks from history into reasoning_details.
-    // Attach to the first assistant message produced from this turn (text or tool_calls).
-    // If no assistant message was produced (thinking-only turn), create one.
     if (message.role === 'assistant') {
+      const regular = message.content.filter(
+        (block) => block.type === 'text' || block.type === 'image',
+      ) as unknown as Json[];
+      const toolCalls = message.content.flatMap((block) => {
+        if (
+          block.type !== 'tool_use' ||
+          typeof (block as Json).id !== 'string' ||
+          typeof (block as Json).name !== 'string'
+        )
+          return [];
+        const tool = block as Json;
+        return [
+          {
+            id: tool.id,
+            type: 'function',
+            function: { name: tool.name, arguments: JSON.stringify(tool.input) },
+          },
+        ];
+      });
+
       const historyReasoning =
         reasoningWireFormat === 'reasoning_content'
           ? anthropicHistoryToReasoningContent(message.content as unknown as Json[])
@@ -170,31 +152,41 @@ export async function anthropicToOpenAI(
               message.content as unknown as Json[],
               resolveProxySignature,
             );
+
+      // An Anthropic assistant turn must remain one OpenAI assistant message. Splitting
+      // text, reasoning, and tool calls across messages breaks tool-result ordering and
+      // can detach reasoning_details from the tool call that produced them.
+      const assistantMessage: Json = {
+        role: 'assistant',
+        content: regular.length ? textContent(regular) : null,
+      };
+      if (toolCalls.length) assistantMessage.tool_calls = toolCalls;
       if (historyReasoning) {
-        let attached = false;
-        for (let i = assistantMsgStartIndex; i < messages.length; i++) {
-          if (messages[i]!.role === 'assistant') {
-            if (reasoningWireFormat === 'reasoning_content')
-              messages[i]!.reasoning_content = historyReasoning;
-            else
-              messages[i]!.reasoning_details = [
-                ...((messages[i]!.reasoning_details as Json[]) ?? []),
-                ...(historyReasoning as Json[]),
-              ];
-            attached = true;
-            break;
-          }
-        }
-        if (!attached) {
-          messages.push(
-            reasoningWireFormat === 'reasoning_content'
-              ? { role: 'assistant', content: null, reasoning_content: historyReasoning }
-              : { role: 'assistant', content: null, reasoning_details: historyReasoning },
-          );
-        }
+        if (reasoningWireFormat === 'reasoning_content')
+          assistantMessage.reasoning_content = historyReasoning;
+        else assistantMessage.reasoning_details = historyReasoning;
       }
+      messages.push(assistantMessage);
+      continue;
+    }
+
+    const regular = message.content.filter(
+      (block) => block.type === 'text' || block.type === 'image',
+    ) as unknown as Json[];
+    if (regular.length) messages.push({ role: message.role, content: textContent(regular) });
+
+    for (const block of message.content) {
+      if (block.type !== 'tool_result' || typeof (block as Json).tool_use_id !== 'string')
+        continue;
+      const result = block as Json;
+      messages.push({
+        role: 'tool',
+        tool_call_id: result.tool_use_id,
+        content: toolResultContent(result.content),
+      });
     }
   }
+
   const raw = request as Record<string, unknown>;
   const body: Json = {
     model: upstreamModel,
@@ -220,7 +212,6 @@ export async function anthropicToOpenAI(
           ? 'required'
           : 'auto';
 
-  // Map Anthropic thinking config → OpenRouter reasoning object
   if (capabilities) {
     const thinking = normalizeThinking(request.thinking, request.output_config);
     const reasoningConfig = buildReasoningConfig(thinking, capabilities, request);
@@ -240,13 +231,10 @@ export async function openAIToAnthropic(
   const message = (choice.message as Json | undefined) ?? {};
   const content: Json[] = [];
 
-  // Provider extensions may expose plaintext reasoning_content instead of the
-  // OpenRouter reasoning_details envelope (e.g. Poolside). Both precede text/tools.
   if (typeof message.reasoning_content === 'string' && message.reasoning_content) {
     content.push({ type: 'thinking', thinking: message.reasoning_content });
   }
 
-  // Convert reasoning_details → Anthropic thinking/redacted_thinking blocks.
   const reasoningDetails = message.reasoning_details as unknown[] | undefined;
   if (reasoningDetails?.length) {
     const thinkingBlocks = await reasoningDetailsToAnthropicBlocks(
