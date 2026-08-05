@@ -102,8 +102,11 @@ describe('Ollama reasoning compatibility', () => {
         choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }],
       });
       yield JSON.stringify({
+        id: 'chatcmpl-381',
+        object: 'chat.completion.chunk',
+        model: 'minimax-m3',
         choices: [],
-        usage: { prompt_tokens: 71, completion_tokens: 37, total_tokens: 108 },
+        usage: { prompt_tokens: 181, completion_tokens: 35, total_tokens: 0 },
       });
       yield '[DONE]';
     }
@@ -128,10 +131,10 @@ describe('Ollama reasoning compatibility', () => {
     expect(secondThinking).toBeGreaterThan(firstThinking);
     expect(reasoningStop).toBeGreaterThan(secondThinking);
     expect(textStart).toBeGreaterThan(reasoningStop);
-    expect(output).toContain('"output_tokens":37');
+    expect(output).toContain('"output_tokens":35');
     expect(usage).toEqual({
-      inputTokens: 71,
-      outputTokens: 37,
+      inputTokens: 181,
+      outputTokens: 35,
       reasoningDetails: true,
     });
   });
