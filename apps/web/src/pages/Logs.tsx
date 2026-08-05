@@ -1,20 +1,8 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
+import { formatTokens } from '../format';
 import { Modal, useModalId } from '../Modal';
-
-function formatTokens(tokens: number | null | undefined) {
-  if (tokens === undefined || tokens === null) return '—';
-  if (tokens < 1_000) return String(tokens);
-  const [suffix, divisor]: [string, number] =
-    tokens >= 1_000_000_000
-      ? ['B', 1_000_000_000]
-      : tokens >= 1_000_000
-        ? ['M', 1_000_000]
-        : ['K', 1_000];
-  const value = tokens / divisor;
-  return `${Number(value.toFixed(value >= 10 ? 1 : 2))}${suffix}`;
-}
 
 type Log = {
   id: string;

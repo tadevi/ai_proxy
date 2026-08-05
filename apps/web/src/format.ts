@@ -27,7 +27,8 @@ export function latestErrorMessage(error?: Record<string, unknown> | null) {
   return typeof error.message === 'string' ? error.message : 'An upstream error was recorded.';
 }
 
-export function formatTokens(value: string | number) {
+export function formatTokens(value: string | number | null | undefined) {
+  if (value === null || value === undefined) return '—';
   const tokens = Number(value);
   if (!Number.isFinite(tokens)) return '—';
   if (tokens < 1_000) return String(tokens);
