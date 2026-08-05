@@ -14,8 +14,9 @@ import {
 
 type Json = Record<string, unknown>;
 
-function utf8Bytes(value: string) {
-  return new TextEncoder().encode(value).byteLength;
+function utf8Bytes(value: string | Json[]) {
+  const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+  return new TextEncoder().encode(serialized).byteLength;
 }
 
 function logReasoningContent(event: string, details: Record<string, unknown>) {
