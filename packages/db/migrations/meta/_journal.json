@@ -153,7 +153,7 @@
       "idx": 21,
       "version": "7",
       "when": 1785949800000,
-      "tag": "0022_cache_usage_coverage",
+      "tag": "0021_request_log_reasoning_details",
       "breakpoints": true
     }
   ]
