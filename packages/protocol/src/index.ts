@@ -1,5 +1,5 @@
 export * from './types.js';
-export * from './conversion.js';
+export * from './conversion-ollama.js';
 export * from './rules.js';
 export { openAIStreamToAnthropic, parseSSE } from './sse-ollama.js';
 export type { StreamUsage } from './sse-ollama.js';
