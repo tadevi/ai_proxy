@@ -43,7 +43,7 @@ export async function* openAIStreamToAnthropic(
   model: string,
   id = `msg_${crypto.randomUUID().replaceAll('-', '')}`,
   usage?: StreamUsage,
-  onEncryptedForeign?: (detail: { data: string; format?: string; id?: string }) => void,
+  onEncryptedForeign?: (detail: { data: string; format?: string; id?: string }) => Promise<string>,
 ) {
   yield encode('message_start', {
     type: 'message_start',
@@ -66,15 +66,36 @@ export async function* openAIStreamToAnthropic(
     textStarted: false,
   };
 
-  const finalizeReasoningBlock = (rb: ReasoningBlockState): string[] => {
+  const finalizeReasoningBlock = async (rb: ReasoningBlockState): Promise<string[]> => {
     const events: string[] = [];
-    if (!rb.started || rb.stopped) return events;
+    if (rb.stopped) return events;
+
+    // Foreign encrypted details never become visible thinking text. Persist their
+    // opaque payload and emit a proxy signature handle for a later history turn.
     if (rb.encryptedBuffer && onEncryptedForeign) {
-      onEncryptedForeign({
+      const signature = await onEncryptedForeign({
         data: rb.encryptedBuffer,
         format: rb.encryptedFormat,
       });
+      events.push(encode('content_block_start', {
+        type: 'content_block_start',
+        index: rb.anthropicIndex,
+        content_block: { type: 'thinking', thinking: '' },
+      }));
+      events.push(encode('content_block_delta', {
+        type: 'content_block_delta',
+        index: rb.anthropicIndex,
+        delta: { type: 'signature_delta', signature },
+      }));
+      events.push(encode('content_block_stop', {
+        type: 'content_block_stop',
+        index: rb.anthropicIndex,
+      }));
+      rb.stopped = true;
+      return events;
     }
+
+    if (!rb.started) return events;
     if (rb.signature) {
       events.push(encode('content_block_delta', {
         type: 'content_block_delta',
@@ -90,7 +111,7 @@ export async function* openAIStreamToAnthropic(
     return events;
   };
 
-  const closeActiveBlocks = (): string[] => {
+  const closeActiveBlocks = async (): Promise<string[]> => {
     const events: string[] = [];
     if (state.textStarted && state.textBlockIndex != null) {
       events.push(encode('content_block_stop', {
@@ -100,7 +121,7 @@ export async function* openAIStreamToAnthropic(
       state.textStarted = false;
     }
     for (const rb of state.reasoningBlocks.values()) {
-      events.push(...finalizeReasoningBlock(rb));
+      events.push(...(await finalizeReasoningBlock(rb)));
     }
     for (const index of state.toolCallBlocks.values()) {
       events.push(encode('content_block_stop', { type: 'content_block_stop', index }));
@@ -209,7 +230,7 @@ export async function* openAIStreamToAnthropic(
     // Close finished reasoning blocks (when content delta arrives after reasoning)
     if (typeof delta.content === 'string' || delta.tool_calls) {
       for (const rb of state.reasoningBlocks.values()) {
-        for (const event of finalizeReasoningBlock(rb)) yield event;
+        for (const event of await finalizeReasoningBlock(rb)) yield event;
       }
     }
 
@@ -264,7 +285,7 @@ export async function* openAIStreamToAnthropic(
 
     // ── Finish ──
     if (choice.finish_reason) {
-      for (const event of closeActiveBlocks()) yield event;
+      for (const event of await closeActiveBlocks()) yield event;
       const hasToolCalls = state.toolCallBlocks.size > 0;
       const reason = mapStreamFinishReason(
         typeof choice.finish_reason === 'string' ? choice.finish_reason : null,

@@ -66,8 +66,8 @@ describe('protocol conversion', () => {
     expect(parsed.messages[0]?.content).toEqual([block]);
   });
 
-  it('converts Anthropic text, limits, and tools to OpenAI', () => {
-    const body = anthropicToOpenAI(
+  it('converts Anthropic text, limits, and tools to OpenAI', async () => {
+    const body = await anthropicToOpenAI(
       { ...request, tools: [{ name: 'weather', input_schema: { type: 'object' } }] },
       'gpt-test',
     );
@@ -75,8 +75,8 @@ describe('protocol conversion', () => {
     expect(body.tools).toHaveLength(1);
   });
 
-  it('converts OpenAI text and usage to Anthropic', () => {
-    const body = openAIToAnthropic(
+  it('converts OpenAI text and usage to Anthropic', async () => {
+    const body = await openAIToAnthropic(
       {
         id: 'chat-1',
         choices: [{ message: { content: 'hi' }, finish_reason: 'stop' }],
@@ -91,8 +91,8 @@ describe('protocol conversion', () => {
     });
   });
 
-  it('converts tool calls and parses arguments', () => {
-    const body = openAIToAnthropic(
+  it('converts tool calls and parses arguments', async () => {
+    const body = await openAIToAnthropic(
       {
         choices: [
           {
@@ -298,8 +298,8 @@ describe('reasoning mapping', () => {
     expect(config).toBeUndefined();
   });
 
-  it('thinking + tool_use history → reasoning.text + tool_calls', () => {
-    const body = anthropicToOpenAI(
+  it('thinking + tool_use history → reasoning.text + tool_calls', async () => {
+    const body = await anthropicToOpenAI(
       {
         ...request,
         messages: [
@@ -335,8 +335,58 @@ describe('reasoning mapping', () => {
     );
   });
 
-  it('redacted_thinking native → reasoning.encrypted passthrough', () => {
-    const blocks = reasoningDetailsToAnthropicBlocks(
+  it('keeps thinking-only assistant history as a reasoning_details message', async () => {
+    const body = await anthropicToOpenAI(
+      {
+        ...request,
+        messages: [
+          { role: 'assistant', content: [{ type: 'thinking', thinking: 'private thought' }] },
+          { role: 'user', content: 'Continue.' },
+        ],
+      },
+      'gpt-test',
+      fullCaps,
+    );
+    expect(body.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'assistant',
+          content: null,
+          reasoning_details: [{ type: 'reasoning.text', text: 'private thought' }],
+        }),
+      ]),
+    );
+  });
+
+  it('resolves a proxy signature into encrypted upstream reasoning', async () => {
+    const body = await anthropicToOpenAI(
+      {
+        ...request,
+        messages: [
+          {
+            role: 'assistant',
+            content: [{ type: 'thinking', thinking: '', signature: 'proxy:rs_abc' }],
+          },
+          { role: 'user', content: 'Continue.' },
+        ],
+      },
+      'gpt-test',
+      fullCaps,
+      async (signature) =>
+        signature === 'proxy:rs_abc' ? { data: 'encrypted-state', format: 'openai-v2' } : null,
+    );
+    expect(body.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'assistant',
+          reasoning_details: [{ type: 'reasoning.encrypted', data: 'encrypted-state', format: 'openai-v2' }],
+        }),
+      ]),
+    );
+  });
+
+  it('redacted_thinking native → reasoning.encrypted passthrough', async () => {
+    const blocks = await reasoningDetailsToAnthropicBlocks(
       [
         {
           type: 'reasoning.encrypted',
@@ -351,9 +401,9 @@ describe('reasoning mapping', () => {
     ]);
   });
 
-  it('OpenAI encrypted detail → calls onEncryptedForeign callback', () => {
+  it('OpenAI encrypted detail → returns proxy handle in a thinking block', async () => {
     const captured: Array<{ data: string; format?: string }> = [];
-    const blocks = reasoningDetailsToAnthropicBlocks(
+    const blocks = await reasoningDetailsToAnthropicBlocks(
       [
         {
           type: 'reasoning.encrypted',
@@ -362,14 +412,17 @@ describe('reasoning mapping', () => {
         },
       ],
       { upstreamProvider: 'openai' },
-      (detail) => captured.push(detail),
+      async (detail) => {
+        captured.push(detail);
+        return 'proxy:rs_test';
+      },
     );
-    expect(blocks).toEqual([]);
+    expect(blocks).toEqual([{ type: 'thinking', thinking: '', signature: 'proxy:rs_test' }]);
     expect(captured).toEqual([{ data: 'openai-encrypted', format: 'openai-v2' }]);
   });
 
-  it('multiple reasoning_details → preserve ordering', () => {
-    const blocks = reasoningDetailsToAnthropicBlocks(
+  it('multiple reasoning_details → preserve ordering', async () => {
+    const blocks = await reasoningDetailsToAnthropicBlocks(
       [
         { type: 'reasoning.text', text: 'first thought' },
         { type: 'reasoning.summary', summary: 'summary here' },
@@ -439,6 +492,31 @@ describe('reasoning mapping', () => {
     expect(joined).toContain('thinking_delta');
     expect(joined).toContain('tool_use');
     expect(joined).toContain('input_json_delta');
+  });
+
+  it('streams foreign encrypted reasoning as an opaque proxy signature', async () => {
+    async function* source() {
+      yield JSON.stringify({
+        choices: [{ delta: { reasoning_details: [{ id: 'r1', type: 'reasoning.encrypted', data: 'opaque', format: 'openai-v2' }] } }],
+      });
+      yield JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] });
+      yield '[DONE]';
+    }
+    let stored: { data: string; format?: string } | undefined;
+    let output = '';
+    for await (const chunk of openAIStreamToAnthropic(
+      source(),
+      'sonnet',
+      'msg_1',
+      undefined,
+      async (detail) => {
+        stored = detail;
+        return 'proxy:rs_stream';
+      },
+    )) output += chunk;
+    expect(stored).toEqual({ data: 'opaque', format: 'openai-v2' });
+    expect(output).toContain('proxy:rs_stream');
+    expect(output).not.toContain('opaque');
   });
 
   it('stream multiple tool calls', async () => {

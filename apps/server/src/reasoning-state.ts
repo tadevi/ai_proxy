@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import type { ProviderReasoningState, ReasoningStateHandle } from '@gateway/protocol';
+import type { ProviderReasoningState, ReasoningStateHandle, ReasoningStateScope } from '@gateway/protocol';
 
 const DEFAULT_TTL_MS = 30 * 60 * 1_000; // 30 minutes
 const MAX_ENTRIES = 10_000;
@@ -38,14 +38,24 @@ export function createReasoningStateStore(
       return handle;
     },
 
-    async resolve(handle: string): Promise<ProviderReasoningState | null> {
+    async resolve(
+      handle: string,
+      scope: ReasoningStateScope,
+    ): Promise<ProviderReasoningState | null> {
       const entry = store.get(handle);
       if (!entry) return null;
       if (entry.expiresAt <= Date.now()) {
         store.delete(handle);
         return null;
       }
-      return entry.state;
+      const { state } = entry;
+      if (
+        state.userId !== scope.userId ||
+        state.connectionId !== scope.connectionId ||
+        state.upstreamModelId !== scope.upstreamModelId
+      )
+        return null;
+      return state;
     },
 
     async delete(handle: string): Promise<void> {

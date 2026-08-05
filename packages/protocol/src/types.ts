@@ -128,14 +128,22 @@ export type UpstreamContext = {
 export type ProviderReasoningState = {
   data: string;
   format: string;
+  userId: string;
+  connectionId: string;
+  upstreamModelId: string;
   provider?: string;
   signature?: string;
-  model?: string;
   createdAt: number;
+};
+
+export type ReasoningStateScope = {
+  userId: string;
+  connectionId: string;
+  upstreamModelId: string;
 };
 
 export type ReasoningStateHandle = {
   store(state: ProviderReasoningState): Promise<string>;
-  resolve(handle: string): Promise<ProviderReasoningState | null>;
+  resolve(handle: string, scope: ReasoningStateScope): Promise<ProviderReasoningState | null>;
   delete(handle: string): Promise<void>;
 };

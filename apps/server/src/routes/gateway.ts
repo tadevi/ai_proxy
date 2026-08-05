@@ -319,6 +319,7 @@ export async function gatewayRoutes(app: FastifyInstance) {
         app,
         { ...row, token, rules },
         test,
+        userId,
         row.model.upstreamModelId,
         requestSignal(req.raw),
       );
@@ -438,6 +439,7 @@ export async function gatewayRoutes(app: FastifyInstance) {
         app,
         { ...row, token, rules },
         request,
+        userId,
         row.model.upstreamModelId,
         requestSignal(req.raw),
       );
@@ -722,7 +724,7 @@ async function handleMessage(
     try {
       attemptedCount++;
       lastAttempt = attempt;
-      const result = await callModel(app, attempt.resolved, request, request.model, signal);
+      const result = await callModel(app, attempt.resolved, request, userId, request.model, signal);
       if (result.stream) {
         reply.hijack();
         reply.raw.writeHead(200, {
@@ -926,6 +928,7 @@ async function callModel(
   app: FastifyInstance,
   resolved: ResolvedModel,
   request: AnthropicRequest,
+  userId: string,
   clientModel: string,
   clientSignal: AbortSignal,
 ): Promise<{
@@ -975,12 +978,41 @@ async function callModel(
         supportsReasoningEffort: model.supportsReasoning === 'yes',
         supportsAdaptiveReasoning: model.supportsReasoning === 'yes',
       };
-      body = anthropicToOpenAI(requestForModel, model.upstreamModelId, capabilities);
-      if (body.reasoning) {
-        logWarn('reasoning config mapped for upstream', {
-          requestId: clientModel,
+      body = await anthropicToOpenAI(
+        requestForModel,
+        model.upstreamModelId,
+        capabilities,
+        async (signature) => {
+          const state = await reasoningState.resolve(signature, {
+            userId,
+            connectionId: connection.id,
+            upstreamModelId: model.upstreamModelId,
+          });
+          logWarn('reasoning proxy signature received', {
+            upstreamModelId: model.upstreamModelId,
+            resolved: Boolean(state),
+          });
+          return state ? { data: state.data, format: state.format } : null;
+        },
+      );
+      const signatureCount = Array.isArray(body.messages)
+        ? body.messages.reduce((count, message) => {
+            if (!message || typeof message !== 'object') return count;
+            const details = (message as Record<string, unknown>).reasoning_details;
+            return Array.isArray(details)
+              ? count + details.filter(
+                  (detail) =>
+                    detail &&
+                    typeof detail === 'object' &&
+                    typeof (detail as Record<string, unknown>).signature === 'string',
+                ).length
+              : count;
+          }, 0)
+        : 0;
+      if (signatureCount) {
+        logWarn('reasoning provider signatures forwarded', {
           upstreamModelId: model.upstreamModelId,
-          reasoning: body.reasoning,
+          signatureCount,
         });
       }
       body = applyRules(
@@ -1041,13 +1073,16 @@ async function callModel(
               const handle = await reasoningState.store({
                 data: detail.data,
                 format: detail.format ?? 'unknown',
+                userId,
+                connectionId: connection.id,
+                upstreamModelId: model.upstreamModelId,
                 createdAt: Date.now(),
               });
               logWarn('foreign encrypted reasoning stored (stream)', {
                 upstreamModelId: model.upstreamModelId,
                 format: detail.format,
-                handle,
               });
+              return handle;
             })
           : rawStream(response.body, usage);
       streamOwnsCleanup = true;
@@ -1057,24 +1092,23 @@ async function callModel(
       };
     }
     const json = (await response.json()) as Record<string, unknown>;
+    if (model.apiFormat !== 'openai_compatible') return { body: { ...json, model: clientModel } };
     return {
-      body:
-        model.apiFormat === 'openai_compatible'
-          ? openAIToAnthropic(json, clientModel, {
-              upstreamProvider: connection.displayName === 'CLIProxyAPI' ? undefined : connection.displayName,
-            }, async (detail) => {
-              const handle = await reasoningState.store({
-                data: detail.data,
-                format: detail.format ?? 'unknown',
-                createdAt: Date.now(),
-              });
-              logWarn('foreign encrypted reasoning stored', {
-                upstreamModelId: model.upstreamModelId,
-                format: detail.format,
-                handle,
-              });
-            })
-          : { ...json, model: clientModel },
+      body: await openAIToAnthropic(json, clientModel, { upstreamProvider: undefined }, async (detail) => {
+        const handle = await reasoningState.store({
+          data: detail.data,
+          format: detail.format ?? 'unknown',
+          userId,
+          connectionId: connection.id,
+          upstreamModelId: model.upstreamModelId,
+          createdAt: Date.now(),
+        });
+        logWarn('foreign encrypted reasoning stored', {
+          upstreamModelId: model.upstreamModelId,
+          format: detail.format,
+        });
+        return handle;
+      }),
     };
   } catch (error) {
     if (error instanceof UpstreamFailure) throw error;

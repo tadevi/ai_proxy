@@ -75,11 +75,12 @@ function textContent(content: string | Array<Json>): string | Array<Json> {
   return result;
 }
 
-export function anthropicToOpenAI(
+export async function anthropicToOpenAI(
   request: AnthropicRequest,
   upstreamModel: string,
   capabilities?: ReasoningCapabilities,
-): Json {
+  resolveProxySignature?: (signature: string) => Promise<{ data: string; format: string } | null>,
+): Promise<Json> {
   const messages: Json[] = [];
   if (request.system)
     messages.push({
@@ -144,19 +145,26 @@ export function anthropicToOpenAI(
 
     // Map assistant reasoning blocks from history into reasoning_details.
     // Attach to the first assistant message produced from this turn (text or tool_calls).
+    // If no assistant message was produced (thinking-only turn), create one.
     if (message.role === 'assistant') {
-      const reasoningDetails = anthropicHistoryToReasoningDetails(
+      const reasoningDetails = await anthropicHistoryToReasoningDetails(
         message.content as unknown as Json[],
+        resolveProxySignature,
       );
       if (reasoningDetails) {
+        let attached = false;
         for (let i = assistantMsgStartIndex; i < messages.length; i++) {
           if (messages[i]!.role === 'assistant') {
             messages[i]!.reasoning_details = [
               ...((messages[i]!.reasoning_details as Json[]) ?? []),
               ...reasoningDetails,
             ];
+            attached = true;
             break;
           }
+        }
+        if (!attached) {
+          messages.push({ role: 'assistant', content: null, reasoning_details: reasoningDetails });
         }
       }
     }
@@ -196,11 +204,11 @@ export function anthropicToOpenAI(
   return body;
 }
 
-export function openAIToAnthropic(
+export async function openAIToAnthropic(
   response: Json,
   clientModel: string,
   context?: UpstreamContext,
-  onEncryptedForeign?: (detail: { data: string; format?: string; id?: string }) => void,
+  onEncryptedForeign?: (detail: { data: string; format?: string; id?: string }) => Promise<string>,
 ) {
   const choice = (response.choices as Json[] | undefined)?.[0] ?? {};
   const message = (choice.message as Json | undefined) ?? {};
@@ -210,7 +218,7 @@ export function openAIToAnthropic(
   // These must come before text and tool_use blocks.
   const reasoningDetails = message.reasoning_details as unknown[] | undefined;
   if (reasoningDetails?.length) {
-    const thinkingBlocks = reasoningDetailsToAnthropicBlocks(
+    const thinkingBlocks = await reasoningDetailsToAnthropicBlocks(
       reasoningDetails,
       context ?? {},
       onEncryptedForeign,

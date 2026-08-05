@@ -61,17 +61,26 @@ function budgetToEffort(budgetTokens: number): string {
 
 // ── Anthropic history blocks → OpenRouter reasoning_details ───────
 
-export function anthropicHistoryToReasoningDetails(
+export async function anthropicHistoryToReasoningDetails(
   content: Json[],
-): Json[] | undefined {
+  resolveProxySignature?: (signature: string) => Promise<{ data: string; format: string } | null>,
+): Promise<Json[] | undefined> {
   const details: Json[] = [];
   for (const block of content) {
     if (block.type === 'thinking') {
-      details.push({
-        type: 'reasoning.text',
-        text: block.thinking,
-        ...(typeof block.signature === 'string' && block.signature ? { signature: block.signature } : {}),
-      });
+      const signature = typeof block.signature === 'string' ? block.signature : undefined;
+      if (signature?.startsWith('proxy:rs_')) {
+        const state = await resolveProxySignature?.(signature);
+        // Never forward a proxy handle to an upstream as if it were a provider signature.
+        if (state)
+          details.push({ type: 'reasoning.encrypted', data: state.data, format: state.format });
+      } else {
+        details.push({
+          type: 'reasoning.text',
+          text: block.thinking,
+          ...(signature ? { signature } : {}),
+        });
+      }
     } else if (block.type === 'redacted_thinking') {
       details.push({
         type: 'reasoning.encrypted',
@@ -92,11 +101,11 @@ export function isAnthropicNativeEncrypted(
   return detail.format === 'anthropic-claude-v1' && context.upstreamProvider === 'anthropic';
 }
 
-export function reasoningDetailsToAnthropicBlocks(
+export async function reasoningDetailsToAnthropicBlocks(
   details: unknown[],
   context: UpstreamContext,
-  onEncryptedForeign?: (detail: { data: string; format?: string; id?: string }) => void,
-): Json[] {
+  onEncryptedForeign?: (detail: { data: string; format?: string; id?: string }) => Promise<string>,
+): Promise<Json[]> {
   const blocks: Json[] = [];
   for (const raw of details) {
     if (!raw || typeof raw !== 'object') continue;
@@ -125,11 +134,14 @@ export function reasoningDetailsToAnthropicBlocks(
           ...(typeof detail.signature === 'string' && detail.signature ? { signature: detail.signature } : {}),
         });
       } else if (onEncryptedForeign) {
-        onEncryptedForeign({
+        const signature = await onEncryptedForeign({
           data,
           format: typeof detail.format === 'string' ? detail.format : undefined,
           id: typeof detail.id === 'string' ? detail.id : undefined,
         });
+        // The opaque data stays server-side. The signature is a scoped proxy handle for
+        // restoring it on a later assistant-history turn.
+        blocks.push({ type: 'thinking', thinking: '', signature });
       }
     }
   }
