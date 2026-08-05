@@ -111,7 +111,7 @@ export const reasoningDetailsCodec: ReasoningCodec = {
       content,
       context?.resolveProxySignature,
     );
-    if (!value.length) return undefined;
+    if (!value?.length) return undefined;
     return { field: 'reasoning_details', value };
   },
 
