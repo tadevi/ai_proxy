@@ -6,9 +6,40 @@ import {
 
 type Json = Record<string, unknown>;
 
+function normalizedEvent(event: Json) {
+  const choices = event.choices as Json[] | undefined;
+  const choice = choices?.[0];
+  const delta = choice?.delta as Json | undefined;
+  if (!choice || !delta) return event;
+
+  const normalizedDelta: Json = { ...delta };
+  if (normalizedDelta.content === '') delete normalizedDelta.content;
+  if (
+    typeof normalizedDelta.reasoning === 'string' &&
+    normalizedDelta.reasoning &&
+    normalizedDelta.reasoning_content === undefined
+  ) {
+    normalizedDelta.reasoning_content = normalizedDelta.reasoning;
+  }
+
+  return {
+    ...event,
+    choices: [
+      {
+        ...choice,
+        delta: normalizedDelta,
+      },
+      ...(choices?.slice(1) ?? []),
+    ],
+  };
+}
+
 async function* normalizeOllamaReasoning(source: AsyncIterable<string>) {
+  let pendingFinish: Json | undefined;
+
   for await (const data of source) {
     if (data === '[DONE]') {
+      if (pendingFinish) yield JSON.stringify(pendingFinish);
       yield data;
       continue;
     }
@@ -23,31 +54,21 @@ async function* normalizeOllamaReasoning(source: AsyncIterable<string>) {
 
     const choices = event.choices as Json[] | undefined;
     const choice = choices?.[0];
-    const delta = choice?.delta as Json | undefined;
-    if (
-      delta &&
-      typeof delta.reasoning === 'string' &&
-      delta.reasoning &&
-      delta.reasoning_content === undefined
-    ) {
-      yield JSON.stringify({
-        ...event,
-        choices: [
-          {
-            ...choice,
-            delta: {
-              ...delta,
-              reasoning_content: delta.reasoning,
-            },
-          },
-          ...(choices?.slice(1) ?? []),
-        ],
-      });
+    if (choice?.finish_reason && event.usage === undefined) {
+      pendingFinish = normalizedEvent(event);
       continue;
     }
 
-    yield data;
+    if (!choice && event.usage && pendingFinish) {
+      yield JSON.stringify({ ...pendingFinish, usage: event.usage });
+      pendingFinish = undefined;
+      continue;
+    }
+
+    yield JSON.stringify(normalizedEvent(event));
   }
+
+  if (pendingFinish) yield JSON.stringify(pendingFinish);
 }
 
 export function openAIStreamToAnthropic(

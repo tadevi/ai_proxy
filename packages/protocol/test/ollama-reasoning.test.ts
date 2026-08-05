@@ -69,13 +69,22 @@ describe('Ollama reasoning compatibility', () => {
     ]);
   });
 
-  it('streams delta.reasoning as Anthropic thinking deltas and keeps final usage', async () => {
+  it('keeps reasoning open across empty content deltas and emits final usage', async () => {
     async function* source() {
       yield JSON.stringify({
         choices: [
           {
             index: 0,
-            delta: { role: 'assistant', content: '', reasoning: ' Just' },
+            delta: { role: 'assistant', content: '', reasoning: 'The user is asking me' },
+            finish_reason: null,
+          },
+        ],
+      });
+      yield JSON.stringify({
+        choices: [
+          {
+            index: 0,
+            delta: { role: 'assistant', content: '', reasoning: ' to reply exactly.' },
             finish_reason: null,
           },
         ],
@@ -110,10 +119,16 @@ describe('Ollama reasoning compatibility', () => {
       output += chunk;
     }
 
-    expect(output).toContain('thinking_delta');
-    expect(output).toContain(' Just');
-    expect(output).toContain('text_delta');
-    expect(output).toContain('OK');
+    const firstThinking = output.indexOf('The user is asking me');
+    const secondThinking = output.indexOf(' to reply exactly.');
+    const reasoningStop = output.indexOf('content_block_stop', secondThinking);
+    const textStart = output.indexOf('"type":"text"');
+
+    expect(firstThinking).toBeGreaterThan(-1);
+    expect(secondThinking).toBeGreaterThan(firstThinking);
+    expect(reasoningStop).toBeGreaterThan(secondThinking);
+    expect(textStart).toBeGreaterThan(reasoningStop);
+    expect(output).toContain('"output_tokens":37');
     expect(usage).toEqual({
       inputTokens: 71,
       outputTokens: 37,
