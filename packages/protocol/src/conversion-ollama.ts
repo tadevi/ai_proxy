@@ -9,11 +9,19 @@ import type {
 
 export * from './conversion.js';
 
+const ollamaCloudModelPatterns = [
+  /^minimax-m3(?::|$)/i,
+  /^gpt-oss(?::|$)/i,
+];
+
 export function reasoningWireFormatForModel(
   upstreamModel: string,
   configured: ReasoningWireFormat = 'reasoning_details',
 ): ReasoningWireFormat {
-  return /^ollama\//i.test(upstreamModel) ? 'reasoning' : configured;
+  return /^ollama\//i.test(upstreamModel) ||
+    ollamaCloudModelPatterns.some((pattern) => pattern.test(upstreamModel))
+    ? 'reasoning'
+    : configured;
 }
 
 export function anthropicToOpenAI(
