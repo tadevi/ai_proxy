@@ -5,8 +5,12 @@ import { logWarn } from './log.js';
 const DEFAULT_TTL_MS = 30 * 60 * 1_000; // 30 minutes
 const MAX_ENTRIES = 10_000;
 
-function fingerprint(handle: string) {
-  return createHash('sha256').update(handle).digest('hex').slice(0, 12);
+function fingerprint(value: string) {
+  return createHash('sha256').update(value).digest('hex').slice(0, 12);
+}
+
+export function reasoningPayloadFingerprint(state: Pick<ProviderReasoningState, 'data' | 'format'>) {
+  return fingerprint(`${state.format}\0${state.data}`);
 }
 
 export function createReasoningStateStore(
@@ -23,6 +27,7 @@ export function createReasoningStateStore(
         logWarn('reasoning.state.evicted', {
           result: 'expired',
           handleFingerprint: fingerprint(key),
+          payloadFingerprint: reasoningPayloadFingerprint(entry.state),
         });
       }
     }
@@ -35,10 +40,12 @@ export function createReasoningStateStore(
     for (let i = 0; i < excess; i++) {
       const next = keys.next();
       if (next.done) break;
+      const entry = store.get(next.value);
       store.delete(next.value);
       logWarn('reasoning.state.evicted', {
         result: 'capacity',
         handleFingerprint: fingerprint(next.value),
+        ...(entry ? { payloadFingerprint: reasoningPayloadFingerprint(entry.state) } : {}),
       });
     }
   };
@@ -51,6 +58,7 @@ export function createReasoningStateStore(
       enforceLimit();
       logWarn('reasoning.state.stored', {
         handleFingerprint: fingerprint(handle),
+        payloadFingerprint: reasoningPayloadFingerprint(state),
         provider: state.provider,
         format: state.format,
         payloadBytes: Buffer.byteLength(state.data, 'utf8'),
@@ -86,6 +94,7 @@ export function createReasoningStateStore(
         logWarn('reasoning.state.resolve', {
           result: 'expired',
           handleFingerprint,
+          payloadFingerprint: reasoningPayloadFingerprint(entry.state),
         });
         return null;
       }
@@ -98,6 +107,7 @@ export function createReasoningStateStore(
         logWarn('reasoning.state.resolve', {
           result: 'scope_mismatch',
           handleFingerprint,
+          payloadFingerprint: reasoningPayloadFingerprint(state),
         });
         return null;
       }
@@ -105,6 +115,7 @@ export function createReasoningStateStore(
       logWarn('reasoning.state.resolve', {
         result: 'hit',
         handleFingerprint,
+        payloadFingerprint: reasoningPayloadFingerprint(state),
         provider: state.provider,
         format: state.format,
         payloadBytes: Buffer.byteLength(state.data, 'utf8'),
@@ -113,10 +124,12 @@ export function createReasoningStateStore(
     },
 
     async delete(handle: string): Promise<void> {
+      const entry = store.get(handle);
       const deleted = store.delete(handle);
       logWarn('reasoning.state.deleted', {
         result: deleted ? 'deleted' : 'not_found',
         handleFingerprint: fingerprint(handle),
+        ...(entry ? { payloadFingerprint: reasoningPayloadFingerprint(entry.state) } : {}),
       });
     },
   };
