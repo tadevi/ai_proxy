@@ -26,6 +26,7 @@ import {
   parseSSE,
   type AnthropicRequest,
   type ReasoningCapabilities,
+  type ReasoningWireFormat,
   type Rule,
   type StreamUsage,
   type UpstreamContext,
@@ -994,6 +995,7 @@ async function callModel(
           });
           return state ? { data: state.data, format: state.format } : null;
         },
+        reasoningWireFormat(connection),
       );
       const signatureCount = Array.isArray(body.messages)
         ? body.messages.reduce((count, message) => {
@@ -1179,6 +1181,18 @@ async function* rawStream(body: ReadableStream<Uint8Array>, usage: StreamUsage) 
     consume(decoder.decode());
   } finally {
     reader.releaseLock();
+  }
+}
+
+function reasoningWireFormat(connection: ProviderConnection): ReasoningWireFormat {
+  // This provider identity comes from the configured upstream URL, never the user-editable
+  // display name. Poolside streams and accepts its OpenAI-compatible reasoning_content extension.
+  try {
+    return new URL(connection.baseUrl).hostname.toLowerCase() === 'inference.poolside.ai'
+      ? 'reasoning_content'
+      : 'reasoning_details';
+  } catch {
+    return 'reasoning_details';
   }
 }
 

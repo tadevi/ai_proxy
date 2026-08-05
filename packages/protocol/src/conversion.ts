@@ -1,4 +1,10 @@
-import type { AnthropicRequest, NormalizedThinking, ReasoningCapabilities, UpstreamContext } from './types.js';
+import type {
+  AnthropicRequest,
+  NormalizedThinking,
+  ReasoningCapabilities,
+  ReasoningWireFormat,
+  UpstreamContext,
+} from './types.js';
 import {
   anthropicHistoryToReasoningDetails,
   buildReasoningConfig,
@@ -75,11 +81,21 @@ function textContent(content: string | Array<Json>): string | Array<Json> {
   return result;
 }
 
+function anthropicHistoryToReasoningContent(content: Json[]): string | undefined {
+  const parts = content.flatMap((block) =>
+    block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking
+      ? [block.thinking]
+      : [],
+  );
+  return parts.length ? parts.join('\n\n') : undefined;
+}
+
 export async function anthropicToOpenAI(
   request: AnthropicRequest,
   upstreamModel: string,
   capabilities?: ReasoningCapabilities,
   resolveProxySignature?: (signature: string) => Promise<{ data: string; format: string } | null>,
+  reasoningWireFormat: ReasoningWireFormat = 'reasoning_details',
 ): Promise<Json> {
   const messages: Json[] = [];
   if (request.system)
@@ -147,24 +163,34 @@ export async function anthropicToOpenAI(
     // Attach to the first assistant message produced from this turn (text or tool_calls).
     // If no assistant message was produced (thinking-only turn), create one.
     if (message.role === 'assistant') {
-      const reasoningDetails = await anthropicHistoryToReasoningDetails(
-        message.content as unknown as Json[],
-        resolveProxySignature,
-      );
-      if (reasoningDetails) {
+      const historyReasoning =
+        reasoningWireFormat === 'reasoning_content'
+          ? anthropicHistoryToReasoningContent(message.content as unknown as Json[])
+          : await anthropicHistoryToReasoningDetails(
+              message.content as unknown as Json[],
+              resolveProxySignature,
+            );
+      if (historyReasoning) {
         let attached = false;
         for (let i = assistantMsgStartIndex; i < messages.length; i++) {
           if (messages[i]!.role === 'assistant') {
-            messages[i]!.reasoning_details = [
-              ...((messages[i]!.reasoning_details as Json[]) ?? []),
-              ...reasoningDetails,
-            ];
+            if (reasoningWireFormat === 'reasoning_content')
+              messages[i]!.reasoning_content = historyReasoning;
+            else
+              messages[i]!.reasoning_details = [
+                ...((messages[i]!.reasoning_details as Json[]) ?? []),
+                ...(historyReasoning as Json[]),
+              ];
             attached = true;
             break;
           }
         }
         if (!attached) {
-          messages.push({ role: 'assistant', content: null, reasoning_details: reasoningDetails });
+          messages.push(
+            reasoningWireFormat === 'reasoning_content'
+              ? { role: 'assistant', content: null, reasoning_content: historyReasoning }
+              : { role: 'assistant', content: null, reasoning_details: historyReasoning },
+          );
         }
       }
     }
@@ -214,8 +240,13 @@ export async function openAIToAnthropic(
   const message = (choice.message as Json | undefined) ?? {};
   const content: Json[] = [];
 
-  // Convert reasoning_details → Anthropic thinking/redacted_thinking blocks
-  // These must come before text and tool_use blocks.
+  // Provider extensions may expose plaintext reasoning_content instead of the
+  // OpenRouter reasoning_details envelope (e.g. Poolside). Both precede text/tools.
+  if (typeof message.reasoning_content === 'string' && message.reasoning_content) {
+    content.push({ type: 'thinking', thinking: message.reasoning_content });
+  }
+
+  // Convert reasoning_details → Anthropic thinking/redacted_thinking blocks.
   const reasoningDetails = message.reasoning_details as unknown[] | undefined;
   if (reasoningDetails?.length) {
     const thinkingBlocks = await reasoningDetailsToAnthropicBlocks(

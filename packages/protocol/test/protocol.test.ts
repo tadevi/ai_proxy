@@ -91,6 +91,24 @@ describe('protocol conversion', () => {
     });
   });
 
+  it('converts Poolside reasoning_content before visible text', async () => {
+    const body = await openAIToAnthropic(
+      {
+        choices: [
+          {
+            message: { reasoning_content: 'private calculation', content: '391' },
+            finish_reason: 'stop',
+          },
+        ],
+      },
+      'sonnet',
+    );
+    expect(body.content).toEqual([
+      { type: 'thinking', thinking: 'private calculation' },
+      { type: 'text', text: '391' },
+    ]);
+  });
+
   it('converts tool calls and parses arguments', async () => {
     const body = await openAIToAnthropic(
       {
@@ -335,6 +353,37 @@ describe('reasoning mapping', () => {
     );
   });
 
+  it('maps assistant thinking history to Poolside reasoning_content', async () => {
+    const body = await anthropicToOpenAI(
+      {
+        ...request,
+        messages: [
+          {
+            role: 'assistant',
+            content: [
+              { type: 'thinking', thinking: 'calculate carefully' },
+              { type: 'text', text: '391' },
+            ],
+          },
+          { role: 'user', content: 'Verify.' },
+        ],
+      },
+      'poolside/laguna-s-2.1',
+      fullCaps,
+      undefined,
+      'reasoning_content',
+    );
+    expect(body.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'assistant',
+          content: [{ type: 'text', text: '391' }],
+          reasoning_content: 'calculate carefully',
+        }),
+      ]),
+    );
+  });
+
   it('keeps thinking-only assistant history as a reasoning_details message', async () => {
     const body = await anthropicToOpenAI(
       {
@@ -492,6 +541,30 @@ describe('reasoning mapping', () => {
     expect(joined).toContain('thinking_delta');
     expect(joined).toContain('tool_use');
     expect(joined).toContain('input_json_delta');
+  });
+
+  it('streams Poolside reasoning_content before text and captures reasoning usage', async () => {
+    async function* source() {
+      yield JSON.stringify({
+        choices: [{ delta: { reasoning_content: 'calculate' } }],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 20,
+          completion_tokens_details: { reasoning_tokens: 15 },
+        },
+      });
+      yield JSON.stringify({ choices: [{ delta: { content: '391' }, finish_reason: 'stop' }] });
+      yield '[DONE]';
+    }
+    const usage: { reasoningTokens?: number } = {};
+    let output = '';
+    for await (const chunk of openAIStreamToAnthropic(source(), 'sonnet', 'msg_1', usage))
+      output += chunk;
+    expect(output).toContain('thinking_delta');
+    expect(output).toContain('calculate');
+    expect(output).toContain('text_delta');
+    expect(output).toContain('391');
+    expect(usage.reasoningTokens).toBe(15);
   });
 
   it('streams foreign encrypted reasoning as an opaque proxy signature', async () => {

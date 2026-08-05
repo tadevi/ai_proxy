@@ -3,6 +3,7 @@ export type StreamUsage = {
   inputTokens?: number;
   outputTokens?: number;
   cacheInputTokens?: number;
+  reasoningTokens?: number;
   reasoningDetails?: boolean;
 };
 
@@ -33,6 +34,9 @@ function recordOpenAIUsage(event: Json, usage?: StreamUsage) {
   const details = upstreamUsage?.prompt_tokens_details as Json | undefined;
   if (typeof details?.cached_tokens === 'number')
     usage.cacheInputTokens = details.cached_tokens;
+  const completionDetails = upstreamUsage?.completion_tokens_details as Json | undefined;
+  if (typeof completionDetails?.reasoning_tokens === 'number')
+    usage.reasoningTokens = completionDetails.reasoning_tokens;
 }
 
 const encode = (event: string, data: unknown) =>
@@ -154,6 +158,32 @@ export async function* openAIStreamToAnthropic(
     const delta = (choice.delta as Json | undefined) ?? {};
 
     // ── Reasoning deltas ──
+    // Poolside-compatible providers stream plaintext thinking in this extension.
+    if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
+      if (usage) usage.reasoningDetails = true;
+      const rb = getOrCreateReasoningBlock('reasoning_content');
+      if (!rb.started) {
+        if (state.textStarted && state.textBlockIndex != null) {
+          yield encode('content_block_stop', {
+            type: 'content_block_stop',
+            index: state.textBlockIndex,
+          });
+          state.textStarted = false;
+        }
+        yield encode('content_block_start', {
+          type: 'content_block_start',
+          index: rb.anthropicIndex,
+          content_block: { type: 'thinking', thinking: '' },
+        });
+        rb.started = true;
+      }
+      yield encode('content_block_delta', {
+        type: 'content_block_delta',
+        index: rb.anthropicIndex,
+        delta: { type: 'thinking_delta', thinking: delta.reasoning_content },
+      });
+    }
+
     const reasoningParts = delta.reasoning_details as Json[] | undefined;
     if (reasoningParts?.length) {
       if (usage) usage.reasoningDetails = true;
