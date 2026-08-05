@@ -34,7 +34,25 @@ function normalizedEvent(event: Json) {
   };
 }
 
-async function* normalizeOllamaReasoning(source: AsyncIterable<string>) {
+function recordTrailingUsage(event: Json, usage?: StreamUsage) {
+  if (!usage) return;
+  const upstreamUsage = event.usage as Json | undefined;
+  if (typeof upstreamUsage?.prompt_tokens === 'number')
+    usage.inputTokens = upstreamUsage.prompt_tokens;
+  if (typeof upstreamUsage?.completion_tokens === 'number')
+    usage.outputTokens = upstreamUsage.completion_tokens;
+  const promptDetails = upstreamUsage?.prompt_tokens_details as Json | undefined;
+  if (typeof promptDetails?.cached_tokens === 'number')
+    usage.cacheInputTokens = promptDetails.cached_tokens;
+  const completionDetails = upstreamUsage?.completion_tokens_details as Json | undefined;
+  if (typeof completionDetails?.reasoning_tokens === 'number')
+    usage.reasoningTokens = completionDetails.reasoning_tokens;
+}
+
+async function* normalizeOllamaReasoning(
+  source: AsyncIterable<string>,
+  usage?: StreamUsage,
+) {
   let pendingFinish: Json | undefined;
 
   for await (const data of source) {
@@ -51,6 +69,8 @@ async function* normalizeOllamaReasoning(source: AsyncIterable<string>) {
       yield data;
       continue;
     }
+
+    recordTrailingUsage(event, usage);
 
     const choices = event.choices as Json[] | undefined;
     const choice = choices?.[0];
@@ -79,7 +99,7 @@ export function openAIStreamToAnthropic(
   onEncryptedForeign?: (detail: { data: string; format?: string; id?: string }) => Promise<string>,
 ) {
   return baseOpenAIStreamToAnthropic(
-    normalizeOllamaReasoning(source),
+    normalizeOllamaReasoning(source, usage),
     model,
     id,
     usage,
