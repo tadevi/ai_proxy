@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { decryptCredential, encryptCredential, hashSecret } from '../src/security.js';
-import { requestContainsImages, safeProviderErrorBody } from '../src/routes/gateway.js';
+import { requestContainsImages, safeProviderErrorBody } from '../src/routes/gateway/schema.js';
 import { anthropicRequestSchema } from '@gateway/protocol';
 
 describe('security primitives', () => {

@@ -11,7 +11,7 @@ import { lt } from 'drizzle-orm';
 import { createDb, requestLogs } from '@gateway/db';
 import type { Config } from './config.js';
 import { dashboardRoutes } from './routes/dashboard.js';
-import { gatewayRoutes } from './routes/gateway.js';
+import { gatewayRoutes } from './routes/gateway/route.js';
 import { cliproxyRoutes } from './routes/cliproxy.js';
 import { dashboardAuth } from './auth.js';
 import { logError, logRequest, logWarn } from './log.js';

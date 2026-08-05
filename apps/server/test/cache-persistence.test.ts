@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { openAIToAnthropic } from '@gateway/protocol';
-import { extractCacheInputTokens } from '../src/routes/gateway.js';
+import { extractCacheInputTokens } from '../src/routes/gateway/usage.js';
 
 function upstreamUsage(
   cached_tokens?: number,
