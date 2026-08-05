@@ -148,6 +148,13 @@
       "when": 1785488400000,
       "tag": "0020_model_fallback_cooldown",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785949800000,
+      "tag": "0022_cache_usage_coverage",
+      "breakpoints": true
     }
   ]
 }
