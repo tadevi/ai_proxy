@@ -5,23 +5,14 @@ import type {
   ReasoningWireFormat,
   UpstreamContext,
 } from './types.js';
+import { buildReasoningConfig, mapFinishReason } from './reasoning.js';
 import {
-  anthropicHistoryToReasoningDetails,
-  buildReasoningConfig,
-  mapFinishReason,
-  reasoningDetailsToAnthropicBlocks,
-} from './reasoning.js';
+  consoleReasoningTelemetry,
+  decodeReasoningResponse,
+  getReasoningCodec,
+} from './reasoning-codec.js';
 
 type Json = Record<string, unknown>;
-
-function utf8Bytes(value: string | Json[]) {
-  const serialized = typeof value === 'string' ? value : JSON.stringify(value);
-  return new TextEncoder().encode(serialized).byteLength;
-}
-
-function logReasoningContent(event: string, details: Record<string, unknown>) {
-  console.warn(`[warn] ${event} ${JSON.stringify(details)}`);
-}
 
 export function normalizeThinking(raw: unknown, outputConfig?: unknown): NormalizedThinking {
   if (!raw || typeof raw !== 'object') return { enabled: false };
@@ -91,15 +82,6 @@ function textContent(content: string | Array<Json>): string | Array<Json> {
   return result;
 }
 
-function anthropicHistoryToReasoningContent(content: Json[]): string | undefined {
-  const parts = content.flatMap((block) =>
-    block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking
-      ? [block.thinking]
-      : [],
-  );
-  return parts.length ? parts.join('\n\n') : undefined;
-}
-
 function toolResultContent(resultContent: unknown): string {
   if (typeof resultContent === 'string') return resultContent;
   if (!Array.isArray(resultContent)) return '';
@@ -119,6 +101,7 @@ export async function anthropicToOpenAI(
   reasoningWireFormat: ReasoningWireFormat = 'reasoning_details',
 ): Promise<Json> {
   const messages: Json[] = [];
+  const reasoningCodec = getReasoningCodec(reasoningWireFormat);
   if (request.system)
     messages.push({
       role: 'system',
@@ -155,30 +138,21 @@ export async function anthropicToOpenAI(
         ];
       });
 
-      const historyReasoning =
-        reasoningWireFormat === 'reasoning_content'
-          ? anthropicHistoryToReasoningContent(message.content as unknown as Json[])
-          : await anthropicHistoryToReasoningDetails(
-              message.content as unknown as Json[],
-              resolveProxySignature,
-            );
+      const encodedReasoning = await reasoningCodec.encodeHistory(
+        message.content as unknown as Json[],
+        {
+          telemetry: consoleReasoningTelemetry,
+          attributes: { toolCallCount: toolCalls.length },
+          resolveProxySignature,
+        },
+      );
 
       const assistantMessage: Json = {
         role: 'assistant',
         content: regular.length ? textContent(regular) : null,
       };
       if (toolCalls.length) assistantMessage.tool_calls = toolCalls;
-      if (historyReasoning) {
-        if (reasoningWireFormat === 'reasoning_content') {
-          assistantMessage.reasoning_content = historyReasoning;
-          logReasoningContent('reasoning.history.replayed', {
-            wireFormat: 'reasoning_content',
-            payloadBytes: utf8Bytes(historyReasoning),
-            thinkingBlockCount: message.content.filter((block) => block.type === 'thinking').length,
-            toolCallCount: toolCalls.length,
-          });
-        } else assistantMessage.reasoning_details = historyReasoning;
-      }
+      if (encodedReasoning) assistantMessage[encodedReasoning.field] = encodedReasoning.value;
       messages.push(assistantMessage);
       continue;
     }
@@ -242,27 +216,11 @@ export async function openAIToAnthropic(
 ) {
   const choice = (response.choices as Json[] | undefined)?.[0] ?? {};
   const message = (choice.message as Json | undefined) ?? {};
-  const content: Json[] = [];
-
-  if (typeof message.reasoning_content === 'string' && message.reasoning_content) {
-    logReasoningContent('reasoning.response.detected', {
-      wireFormat: 'reasoning_content',
-      mode: 'non_streaming',
-      payloadBytes: utf8Bytes(message.reasoning_content),
-      toolCallCount: Array.isArray(message.tool_calls) ? message.tool_calls.length : 0,
-    });
-    content.push({ type: 'thinking', thinking: message.reasoning_content });
-  }
-
-  const reasoningDetails = message.reasoning_details as unknown[] | undefined;
-  if (reasoningDetails?.length) {
-    const thinkingBlocks = await reasoningDetailsToAnthropicBlocks(
-      reasoningDetails,
-      context ?? {},
-      onEncryptedForeign,
-    );
-    content.push(...thinkingBlocks);
-  }
+  const content = await decodeReasoningResponse(message, {
+    telemetry: consoleReasoningTelemetry,
+    upstream: context,
+    onEncryptedForeign,
+  });
 
   if (typeof message.content === 'string' && message.content)
     content.push({ type: 'text', text: message.content });
