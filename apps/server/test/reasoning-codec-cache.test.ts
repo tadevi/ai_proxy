@@ -13,7 +13,8 @@ describe('reasoning codec fallback', () => {
     expect(
       reasoningWireFormat({ baseUrl: 'https://example.com' } as ResolvedModel['connection']),
     ).toBe('reasoning_details');
-  
+  });
+
   it('ignores empty and foreign signatures during auto-detection', () => {
     expect(
       requestReasoningSignatures({
@@ -30,5 +31,4 @@ describe('reasoning codec fallback', () => {
       } as never),
     ).toEqual(['proxy:rs_valid']);
   });
-});
 });
