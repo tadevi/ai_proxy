@@ -1,37 +1,25 @@
 import type { FastifyInstance } from 'fastify';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import {
-  bindingRoutes,
   bindingTransformationRules,
   cliproxyAccounts,
-  connectionTokens,
   mappingRoutes,
   mappings,
   modelBindings,
   modelPresets,
   modelUsageDaily,
   providerConnections,
+  runtimeBindingRoutes,
 } from '@gateway/db';
 import { aliases } from '@gateway/shared';
-import {
-  modelInputSchema,
-  mappingUpdateSchema,
-  ruleInputSchema,
-} from '@gateway/shared';
-import { isUniqueViolation } from '../../security.js';
-import {
-  safeModel,
-  ownsModel,
-  getModel,
-  ensureMapping,
-  ensureMappings,
-} from './index.js';
+import { mappingUpdateSchema, ruleInputSchema } from '@gateway/shared';
+import { ensureMapping, ensureMappings, listModels } from './index.js';
 
 export async function registerModelRoutes(app: FastifyInstance) {
   app.get('/api/models/usage', async (req) =>
     app.db
       .select({
-        upstreamModelId: bindingRoutes.id,
+        upstreamModelId: runtimeBindingRoutes.id,
         requestCount: sql<string>`coalesce(sum(${modelUsageDaily.requestCount}), 0)::text`,
         inputTokens: sql<string>`coalesce(sum(${modelUsageDaily.inputTokens}), 0)::text`,
         outputTokens: sql<string>`coalesce(sum(${modelUsageDaily.outputTokens}), 0)::text`,
@@ -39,76 +27,47 @@ export async function registerModelRoutes(app: FastifyInstance) {
         cacheInputTokensReportedRequests: sql<string>`coalesce(sum(${modelUsageDaily.cacheUsageReportedRequestCount}), 0)::text`,
       })
       .from(modelUsageDaily)
-      .innerJoin(bindingRoutes, eq(bindingRoutes.bindingId, modelUsageDaily.bindingId))
+      .innerJoin(
+        runtimeBindingRoutes,
+        eq(runtimeBindingRoutes.bindingId, modelUsageDaily.bindingId),
+      )
       .where(
         and(
           eq(modelUsageDaily.userId, req.dashboardUser!.id),
-          eq(bindingRoutes.userId, req.dashboardUser!.id),
+          eq(runtimeBindingRoutes.userId, req.dashboardUser!.id),
         ),
       )
-      .groupBy(bindingRoutes.id),
+      .groupBy(runtimeBindingRoutes.id),
   );
 
-  app.get('/api/models', async (req) => getModelList(app, req.dashboardUser!.id));
+  app.get('/api/models', async (req) => listModels(app, req.dashboardUser!.id));
 
-  app.post('/api/models', async (req, reply) => {
-    const input = modelInputSchema.parse(req.body);
-    if (!(await ownsConnection(app, req.dashboardUser!.id, input.providerConnectionId))) {
-      return reply.code(403).send({ error: 'Provider connection not found' });
-    }
-    try {
-      const [created] = await app.db
-        .insert(bindingRoutes)
-        .values({
-          ...input,
-          userId: req.dashboardUser!.id,
-        })
-        .returning({ id: bindingRoutes.id });
-      return reply.code(201).send((await getModel(app, req.dashboardUser!.id, created!.id))!);
-    } catch (error) {
-      if (isUniqueViolation(error))
-        return reply
-          .code(409)
-          .send({ error: 'This upstream model ID already exists on this connection.' });
-      throw error;
-    }
-  });
+  app.post('/api/models', async (_req, reply) =>
+    reply.code(410).send({
+      error: 'Direct model-instance creation was removed. Bind a preset to a connection instead.',
+    }),
+  );
 
-  app.patch('/api/models/:id', async (req, reply) => {
-    const input = modelInputSchema.partial().parse(req.body);
-    if (
-      input.providerConnectionId &&
-      !(await ownsConnection(app, req.dashboardUser!.id, input.providerConnectionId))
-    ) {
-      return reply.code(403).send({ error: 'Provider connection not found' });
-    }
-    const [model] = await app.db
-      .update(bindingRoutes)
-      .set({ ...input, updatedAt: new Date() })
-      .where(
-        and(
-          eq(bindingRoutes.id, (req.params as { id: string }).id),
-          eq(bindingRoutes.userId, req.dashboardUser!.id),
-        ),
-      )
-      .returning({ id: bindingRoutes.id });
-    return model
-      ? await getModel(app, req.dashboardUser!.id, model.id)
-      : reply.code(404).send({ error: 'Model not found' });
-  });
+  app.patch('/api/models/:id', async (_req, reply) =>
+    reply.code(410).send({
+      error: 'Direct model-instance editing was removed. Update the binding or credential instead.',
+    }),
+  );
 
   app.delete('/api/models/:id', async (req, reply) => {
     const id = (req.params as { id: string }).id;
     const [model] = await app.db
-      .delete(bindingRoutes)
+      .delete(runtimeBindingRoutes)
       .where(
-        and(eq(bindingRoutes.id, id), eq(bindingRoutes.userId, req.dashboardUser!.id)),
+        and(
+          eq(runtimeBindingRoutes.id, id),
+          eq(runtimeBindingRoutes.userId, req.dashboardUser!.id),
+        ),
       )
-      .returning({ id: bindingRoutes.id });
+      .returning({ id: runtimeBindingRoutes.id });
     return model ? { ok: true } : reply.code(404).send({ error: 'Model not found' });
   });
 
-  // ── Binding-owned transformation rules ───────────────────────
   app.get('/api/models/:id/rules', async (req, reply) => {
     const id = (req.params as { id: string }).id;
     const bindingId = await ownedBindingIdForRoute(app, req.dashboardUser!.id, id);
@@ -144,7 +103,6 @@ export async function registerModelRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  // ── Mappings ──────────────────────────────────────────────────
   app.get('/api/mappings', async (req) => {
     await ensureMappings(app, req.dashboardUser!.id);
     const rows = await app.db
@@ -224,36 +182,11 @@ export async function registerModelRoutes(app: FastifyInstance) {
 
 async function ownedBindingIdForRoute(app: FastifyInstance, userId: string, routeId: string) {
   const [route] = await app.db
-    .select({ bindingId: bindingRoutes.bindingId })
-    .from(bindingRoutes)
-    .where(and(eq(bindingRoutes.id, routeId), eq(bindingRoutes.userId, userId)))
+    .select({ bindingId: runtimeBindingRoutes.bindingId })
+    .from(runtimeBindingRoutes)
+    .where(
+      and(eq(runtimeBindingRoutes.id, routeId), eq(runtimeBindingRoutes.userId, userId)),
+    )
     .limit(1);
   return route?.bindingId ?? undefined;
-}
-
-async function getModelList(app: FastifyInstance, userId: string) {
-  return app.db
-    .select(safeModel)
-    .from(bindingRoutes)
-    .innerJoin(
-      providerConnections,
-      eq(providerConnections.id, bindingRoutes.providerConnectionId),
-    )
-    .leftJoin(connectionTokens, eq(connectionTokens.id, bindingRoutes.tokenId))
-    .leftJoin(modelBindings, eq(modelBindings.id, bindingRoutes.bindingId))
-    .leftJoin(cliproxyAccounts, eq(cliproxyAccounts.id, modelBindings.cliproxyAccountId))
-    .where(eq(bindingRoutes.userId, userId))
-    .orderBy(desc(bindingRoutes.createdAt));
-}
-
-async function ownsConnection(app: FastifyInstance, userId: string, id: string) {
-  return !!(
-    await app.db
-      .select({ id: providerConnections.id })
-      .from(providerConnections)
-      .where(
-        and(eq(providerConnections.id, id), eq(providerConnections.userId, userId)),
-      )
-      .limit(1)
-  ).length;
 }
