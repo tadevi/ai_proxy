@@ -31,6 +31,7 @@
     { "idx": 26, "version": "7", "when": 1786039200000, "tag": "0026_binding_owned_transformation_rules", "breakpoints": true },
     { "idx": 27, "version": "7", "when": 1786041000000, "tag": "0027_binding_owned_model_usage", "breakpoints": true },
     { "idx": 28, "version": "7", "when": 1786046400000, "tag": "0028_rename_request_log_route_reference", "breakpoints": true },
-    { "idx": 29, "version": "7", "when": 1786047000000, "tag": "0029_binding_owned_model_config", "breakpoints": true }
+    { "idx": 29, "version": "7", "when": 1786047000000, "tag": "0029_binding_owned_model_config", "breakpoints": true },
+    { "idx": 30, "version": "7", "when": 1786047600000, "tag": "0030_require_binding_owned_model_config", "breakpoints": true }
   ]
 }
