@@ -7,9 +7,15 @@ import {
   providerConnections,
 } from '@gateway/db';
 import { z } from 'zod';
-import { isCliproxyConnection } from './index.js';
 
 const codecSchema = z.enum(['auto', 'reasoning_details', 'reasoning_content']);
+
+function isCliproxyConnection(app: FastifyInstance, baseUrl: string) {
+  return (
+    !!app.config.CLIPROXY_BASE_URL &&
+    baseUrl.replace(/\/$/, '') === app.config.CLIPROXY_BASE_URL.replace(/\/$/, '')
+  );
+}
 
 export async function registerReasoningCodecRoutes(app: FastifyInstance) {
   app.get('/api/reasoning-bindings', async (req) => {
@@ -71,7 +77,9 @@ export async function registerReasoningCodecRoutes(app: FastifyInstance) {
       binding.cliproxyAccountId ||
       isCliproxyConnection(app, binding.baseUrl)
     )
-      return reply.code(400).send({ error: 'Reasoning codec only applies to external OpenAI-compatible bindings' });
+      return reply
+        .code(400)
+        .send({ error: 'Reasoning codec only applies to external OpenAI-compatible bindings' });
 
     const [saved] = await app.db
       .insert(modelBindingReasoningCodecs)
