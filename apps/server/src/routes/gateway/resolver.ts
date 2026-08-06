@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { and, asc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import {
   bindingRoutes,
+  bindingTransformationRules,
   cliproxyModelStates,
   connectionTokens,
   mappingRoutes,
@@ -9,7 +10,6 @@ import {
   modelBindings,
   modelPresets,
   providerConnections,
-  transformationRules,
 } from '@gateway/db';
 import { requestContainsImages, type ResolvedModel, type ResolvedModelBase, type Attempt, type Model, type ProviderConnection } from './schema.js';
 import type { Rule } from '@gateway/protocol';
@@ -20,7 +20,7 @@ const tokenHealthOrder = [
   asc(bindingRoutes.id),
 ];
 
-export function toRule(row: typeof transformationRules.$inferSelect): Rule {
+export function toRule(row: typeof bindingTransformationRules.$inferSelect): Rule {
   return {
     type: row.type,
     enabled: row.enabled,
@@ -50,23 +50,35 @@ async function attachRules<T extends { resolved: ResolvedModelBase }>(
   app: FastifyInstance,
   entries: T[],
 ): Promise<Array<Omit<T, 'resolved'> & { resolved: ResolvedModel }>> {
-  const modelIds = [...new Set(entries.map((e) => e.resolved.model.id))];
-  const ruleRows = modelIds.length
+  const bindingIds = [
+    ...new Set(
+      entries
+        .map((entry) => entry.resolved.model.bindingId)
+        .filter((id): id is string => id != null),
+    ),
+  ];
+  const ruleRows = bindingIds.length
     ? await app.db
         .select()
-        .from(transformationRules)
-        .where(inArray(transformationRules.upstreamModelId, modelIds))
-        .orderBy(asc(transformationRules.position))
+        .from(bindingTransformationRules)
+        .where(inArray(bindingTransformationRules.bindingId, bindingIds))
+        .orderBy(asc(bindingTransformationRules.position))
     : [];
-  const rulesByModel = new Map<string, Rule[]>();
+  const rulesByBinding = new Map<string, Rule[]>();
   for (const row of ruleRows) {
-    const list = rulesByModel.get(row.upstreamModelId) ?? [];
+    if (!row.bindingId) continue;
+    const list = rulesByBinding.get(row.bindingId) ?? [];
     list.push(toRule(row));
-    rulesByModel.set(row.upstreamModelId, list);
+    rulesByBinding.set(row.bindingId, list);
   }
-  return entries.map((e) => ({
-    ...e,
-    resolved: { ...e.resolved, rules: rulesByModel.get(e.resolved.model.id) ?? [] },
+  return entries.map((entry) => ({
+    ...entry,
+    resolved: {
+      ...entry.resolved,
+      rules: entry.resolved.model.bindingId
+        ? (rulesByBinding.get(entry.resolved.model.bindingId) ?? [])
+        : [],
+    },
   }));
 }
 
