@@ -28,6 +28,56 @@ import {
 import { managedStream, rawStream } from './stream-handler.js';
 
 const reasoningState = createReasoningStateStore();
+const reasoningCodecByBindingId = new Map<string, ReasoningWireFormat>();
+
+function requestReasoningSignatures(request: AnthropicRequest): string[] {
+  const signatures: string[] = [];
+  for (const message of request.messages) {
+    if (!Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (!block || typeof block !== 'object') continue;
+      const record = block as Record<string, unknown>;
+      if (
+        (record.type === 'thinking' || record.type === 'redacted_thinking') &&
+        typeof record.signature === 'string'
+      ) {
+        signatures.push(record.signature);
+      }
+    }
+  }
+  return signatures;
+}
+
+async function reasoningWireFormatForRequest(
+  resolved: ResolvedModel,
+  request: AnthropicRequest,
+  userId: string,
+): Promise<ReasoningWireFormat> {
+  const bindingId = resolved.model.bindingId;
+  if (!bindingId) return reasoningWireFormat(resolved.connection);
+
+  const cached = reasoningCodecByBindingId.get(bindingId);
+  if (cached) return cached;
+
+  for (const signature of requestReasoningSignatures(request)) {
+    const state = await reasoningState.resolve(signature, {
+      userId,
+      connectionId: resolved.connection.id,
+      upstreamModelId: resolved.model.upstreamModelId,
+    });
+    if (state?.format !== 'reasoning_details' && state?.format !== 'reasoning_content') continue;
+
+    reasoningCodecByBindingId.set(bindingId, state.format);
+    logWarn('reasoning codec auto-detected', {
+      bindingId,
+      codec: state.format,
+      upstreamModelId: resolved.model.upstreamModelId,
+    });
+    return state.format;
+  }
+
+  return reasoningWireFormat(resolved.connection);
+}
 
 export function requestEndpoint(
   model: ResolvedModel['model'],
@@ -50,18 +100,6 @@ export function reasoningWireFormat(connection: ProviderConnection): ReasoningWi
   } catch {
     return 'reasoning_details';
   }
-}
-
-export function resolvedReasoningWireFormat(
-  resolved: Pick<ResolvedModel, 'connection' | 'reasoningCodec'>,
-  cliproxyBaseUrl?: string,
-): ReasoningWireFormat {
-  const isCliproxy =
-    !!cliproxyBaseUrl &&
-    resolved.connection.baseUrl.replace(/\/$/, '') === cliproxyBaseUrl.replace(/\/$/, '');
-  if (isCliproxy || !resolved.reasoningCodec || resolved.reasoningCodec === 'auto')
-    return reasoningWireFormat(resolved.connection);
-  return resolved.reasoningCodec;
 }
 
 export async function readProviderError(response: Response): Promise<ProviderErrorDetails> {
@@ -144,6 +182,11 @@ export async function callModel(
         supportsReasoningEffort: model.supportsReasoning === 'yes',
         supportsAdaptiveReasoning: model.supportsReasoning === 'yes',
       };
+      const reasoningFormat = await reasoningWireFormatForRequest(
+        resolved,
+        requestForModel,
+        userId,
+      );
       body = await anthropicToOpenAI(
         requestForModel,
         model.upstreamModelId,
@@ -160,7 +203,7 @@ export async function callModel(
           });
           return state ? { data: state.data, format: state.format } : null;
         },
-        resolvedReasoningWireFormat(resolved, app.config.CLIPROXY_BASE_URL),
+        reasoningFormat,
       );
       const signatureCount = Array.isArray(body.messages)
         ? body.messages.reduce((count, message) => {

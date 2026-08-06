@@ -4,7 +4,6 @@ export const aliases = ['haiku', 'sonnet', 'opus'] as const;
 export const capabilitySchema = z.enum(['yes', 'no', 'unknown']);
 export const binaryCapabilitySchema = z.enum(['yes', 'no']);
 export const apiFormatSchema = z.enum(['openai_compatible', 'anthropic_compatible']);
-export const reasoningCodecSchema = z.enum(['auto', 'reasoning_details', 'reasoning_content']);
 export const usernameSchema = z
   .string()
   .trim()
@@ -50,7 +49,6 @@ export const modelBindingInputSchema = z.object({
   presetIds: z.array(z.string().uuid()).min(1).max(100),
   apiFormat: apiFormatSchema.optional(),
   providerBasePath: relativePathSchema.or(z.literal('')).default(''),
-  reasoningCodec: reasoningCodecSchema.default('auto'),
   // Required for the shared CLIProxyAPI connection so every route has an exact auth account.
   cliproxyAccountId: z.string().uuid().nullable().optional(),
 });
