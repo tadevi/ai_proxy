@@ -8,7 +8,6 @@ BEGIN
      AND right_route.id <> left_route.id
     WHERE left_route.binding_id IS NOT NULL
       AND (
-        left_route.display_name IS DISTINCT FROM right_route.display_name OR
         left_route.upstream_model_id IS DISTINCT FROM right_route.upstream_model_id OR
         left_route.request_path_override IS DISTINCT FROM right_route.request_path_override OR
         left_route.context_length IS DISTINCT FROM right_route.context_length OR
@@ -36,22 +35,67 @@ ALTER TABLE model_bindings
 
 UPDATE model_bindings binding
 SET
-  display_name = route.display_name,
-  upstream_model_id = route.upstream_model_id,
-  request_path_override = route.request_path_override,
-  context_length = route.context_length,
-  max_output_tokens = route.max_output_tokens,
-  supports_streaming = route.supports_streaming,
-  supports_tools = route.supports_tools,
-  supports_images = route.supports_images,
-  supports_reasoning = route.supports_reasoning
-FROM LATERAL (
-  SELECT routes.*
-  FROM binding_routes routes
-  WHERE routes.binding_id = binding.id
-  ORDER BY routes.id
-  LIMIT 1
-) route;
+  display_name = (
+    SELECT preset.display_name
+    FROM model_presets preset
+    WHERE preset.id = binding.preset_id
+  ),
+  upstream_model_id = (
+    SELECT route.upstream_model_id
+    FROM binding_routes route
+    WHERE route.binding_id = binding.id
+    ORDER BY route.id
+    LIMIT 1
+  ),
+  request_path_override = (
+    SELECT route.request_path_override
+    FROM binding_routes route
+    WHERE route.binding_id = binding.id
+    ORDER BY route.id
+    LIMIT 1
+  ),
+  context_length = (
+    SELECT route.context_length
+    FROM binding_routes route
+    WHERE route.binding_id = binding.id
+    ORDER BY route.id
+    LIMIT 1
+  ),
+  max_output_tokens = (
+    SELECT route.max_output_tokens
+    FROM binding_routes route
+    WHERE route.binding_id = binding.id
+    ORDER BY route.id
+    LIMIT 1
+  ),
+  supports_streaming = (
+    SELECT route.supports_streaming
+    FROM binding_routes route
+    WHERE route.binding_id = binding.id
+    ORDER BY route.id
+    LIMIT 1
+  ),
+  supports_tools = (
+    SELECT route.supports_tools
+    FROM binding_routes route
+    WHERE route.binding_id = binding.id
+    ORDER BY route.id
+    LIMIT 1
+  ),
+  supports_images = (
+    SELECT route.supports_images
+    FROM binding_routes route
+    WHERE route.binding_id = binding.id
+    ORDER BY route.id
+    LIMIT 1
+  ),
+  supports_reasoning = (
+    SELECT route.supports_reasoning
+    FROM binding_routes route
+    WHERE route.binding_id = binding.id
+    ORDER BY route.id
+    LIMIT 1
+  );
 
 CREATE INDEX model_bindings_upstream_model_idx
   ON model_bindings (user_id, upstream_model_id);
