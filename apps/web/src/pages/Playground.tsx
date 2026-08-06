@@ -21,6 +21,16 @@ function extractToolCalls(response?: CompletionResponse): ContentBlock[] {
   return response?.content?.filter((block) => block.type === 'tool_use') ?? [];
 }
 
+function modelOptionLabel(model: Model): string {
+  if (!model.cliproxyAccountLabel && !model.cliproxyAccountPrefix) {
+    return `${model.providerConnectionName} · ${model.displayName}`;
+  }
+
+  const displayName = model.displayName.replace(/\s+\([^)]*@\s*CLIProxyAPI\)\s*$/, '');
+  const account = model.cliproxyAccountLabel ?? model.cliproxyAccountPrefix;
+  return `${model.providerConnectionName} · ${displayName} (${account})`;
+}
+
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -85,7 +95,7 @@ export function Playground() {
               <option value="">Select a model…</option>
               {models.data?.map((m) => (
                 <option key={m.id} value={m.id} disabled={!m.enabled}>
-                  {m.providerConnectionName} · {m.displayName}
+                  {modelOptionLabel(m)}
                   {!m.enabled ? ' (disabled)' : ''}
                 </option>
               ))}
