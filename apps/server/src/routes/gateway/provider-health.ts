@@ -10,18 +10,12 @@ import type { FastifyInstance } from 'fastify';
 import { logWarn } from '../../log.js';
 import { cooldownDurationMs, type Model, type UpstreamFailure } from './schema.js';
 
-export async function recordModelSuccess(app: FastifyInstance, modelId: string) {
-  const [model] = await app.db
-    .select({
-      id: upstreamModels.id,
-      tokenId: upstreamModels.tokenId,
-      bindingId: upstreamModels.bindingId,
-    })
-    .from(upstreamModels)
-    .where(eq(upstreamModels.id, modelId))
-    .limit(1);
-  if (!model) return;
+export type SuccessfulCombination = Pick<Model, 'id' | 'tokenId' | 'bindingId'>;
 
+export async function recordCombinationSuccess(
+  app: FastifyInstance,
+  combination: SuccessfulCombination,
+) {
   const now = new Date();
   await app.db
     .update(upstreamModels)
@@ -33,9 +27,9 @@ export async function recordModelSuccess(app: FastifyInstance, modelId: string) 
       fallbackCooldownUntil: null,
       updatedAt: now,
     })
-    .where(eq(upstreamModels.id, model.id));
+    .where(eq(upstreamModels.id, combination.id));
 
-  if (model.tokenId) {
+  if (combination.tokenId) {
     await app.db
       .update(connectionTokens)
       .set({
@@ -44,10 +38,10 @@ export async function recordModelSuccess(app: FastifyInstance, modelId: string) 
         latestErrorAt: null,
         updatedAt: now,
       })
-      .where(eq(connectionTokens.id, model.tokenId));
+      .where(eq(connectionTokens.id, combination.tokenId));
   }
 
-  await clearCliproxyModelCooldown(app, model);
+  await clearCliproxyModelCooldown(app, combination);
 }
 
 export async function recordModelFailure(
