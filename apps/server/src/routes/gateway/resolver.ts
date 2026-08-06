@@ -1,15 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import { and, asc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import {
-  bindingRoutes,
+  bindingModelConfigs,
   bindingTransformationRules,
   cliproxyModelStates,
   connectionTokens,
   mappingRoutes,
   mappings,
-  modelBindings,
-  modelPresets,
   providerConnections,
+  runtimeBindingRoutes,
 } from '@gateway/db';
 import {
   requestContainsImages,
@@ -22,24 +21,24 @@ import {
 import type { Rule } from '@gateway/protocol';
 
 const tokenHealthOrder = [
-  sql`case ${bindingRoutes.latestTestStatus} when 'healthy' then 0 when 'failed' then 2 else 1 end`,
-  asc(bindingRoutes.createdAt),
-  asc(bindingRoutes.id),
+  sql`case ${runtimeBindingRoutes.latestTestStatus} when 'healthy' then 0 when 'failed' then 2 else 1 end`,
+  asc(runtimeBindingRoutes.createdAt),
+  asc(runtimeBindingRoutes.id),
 ];
 
 const bindingConfigSelection = {
-  displayName: sql<string>`coalesce(${modelBindings}."display_name", ${bindingRoutes.displayName})`,
-  upstreamModelId: sql<string>`coalesce(${modelBindings}."upstream_model_id", ${bindingRoutes.upstreamModelId})`,
-  providerConnectionId: modelBindings.connectionId,
-  apiFormat: modelBindings.apiFormat,
-  providerBasePath: modelBindings.providerBasePath,
-  requestPathOverride: sql<string | null>`coalesce(${modelBindings}."request_path_override", ${bindingRoutes.requestPathOverride})`,
-  contextLength: sql<number | null>`coalesce(${modelBindings}."context_length", ${bindingRoutes.contextLength})`,
-  maxOutputTokens: sql<number | null>`coalesce(${modelBindings}."max_output_tokens", ${bindingRoutes.maxOutputTokens})`,
-  supportsStreaming: sql<Model['supportsStreaming']>`coalesce(${modelBindings}."supports_streaming", ${bindingRoutes.supportsStreaming})`,
-  supportsTools: sql<Model['supportsTools']>`coalesce(${modelBindings}."supports_tools", ${bindingRoutes.supportsTools})`,
-  supportsImages: sql<Model['supportsImages']>`coalesce(${modelBindings}."supports_images", ${bindingRoutes.supportsImages})`,
-  supportsReasoning: sql<Model['supportsReasoning']>`coalesce(${modelBindings}."supports_reasoning", ${bindingRoutes.supportsReasoning})`,
+  displayName: bindingModelConfigs.displayName,
+  upstreamModelId: bindingModelConfigs.upstreamModelId,
+  providerConnectionId: bindingModelConfigs.connectionId,
+  apiFormat: bindingModelConfigs.apiFormat,
+  providerBasePath: bindingModelConfigs.providerBasePath,
+  requestPathOverride: bindingModelConfigs.requestPathOverride,
+  contextLength: bindingModelConfigs.contextLength,
+  maxOutputTokens: bindingModelConfigs.maxOutputTokens,
+  supportsStreaming: bindingModelConfigs.supportsStreaming,
+  supportsTools: bindingModelConfigs.supportsTools,
+  supportsImages: bindingModelConfigs.supportsImages,
+  supportsReasoning: bindingModelConfigs.supportsReasoning,
 };
 
 type BindingConfig = {
@@ -57,8 +56,10 @@ type BindingConfig = {
   supportsReasoning: Model['supportsReasoning'];
 };
 
+type RuntimeRoute = typeof runtimeBindingRoutes.$inferSelect;
+
 type RoutedModelRow = {
-  model: Model;
+  model: RuntimeRoute;
   bindingConfig: BindingConfig;
   connection: ProviderConnection;
 };
@@ -69,7 +70,7 @@ function applyBindingConfig(row: RoutedModelRow): { model: Model; connection: Pr
     model: {
       ...row.model,
       ...row.bindingConfig,
-    },
+    } as Model,
   };
 }
 
@@ -158,29 +159,28 @@ export async function resolve(
   if (mapping) {
     const rows = await app.db
       .select({
-        model: bindingRoutes,
+        model: runtimeBindingRoutes,
         bindingConfig: bindingConfigSelection,
         connection: providerConnections,
       })
       .from(mappingRoutes)
-      .innerJoin(modelBindings, eq(modelBindings.id, mappingRoutes.bindingId))
-      .innerJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
-      .innerJoin(bindingRoutes, eq(bindingRoutes.bindingId, modelBindings.id))
+      .innerJoin(bindingModelConfigs, eq(bindingModelConfigs.id, mappingRoutes.bindingId))
+      .innerJoin(runtimeBindingRoutes, eq(runtimeBindingRoutes.bindingId, bindingModelConfigs.id))
       .leftJoin(
         cliproxyModelStates,
         and(
-          eq(cliproxyModelStates.cliproxyAccountId, modelBindings.cliproxyAccountId),
-          eq(cliproxyModelStates.upstreamModelId, modelPresets.upstreamModelId),
+          eq(cliproxyModelStates.cliproxyAccountId, bindingModelConfigs.cliproxyAccountId),
+          eq(cliproxyModelStates.upstreamModelId, bindingModelConfigs.upstreamModelId),
         ),
       )
       .innerJoin(
         providerConnections,
-        eq(providerConnections.id, modelBindings.connectionId),
+        eq(providerConnections.id, bindingModelConfigs.connectionId),
       )
       .innerJoin(
         connectionTokens,
         and(
-          eq(connectionTokens.id, bindingRoutes.tokenId),
+          eq(connectionTokens.id, runtimeBindingRoutes.tokenId),
           eq(connectionTokens.enabled, true),
           or(
             isNull(connectionTokens.cooldownUntil),
@@ -198,10 +198,10 @@ export async function resolve(
             lte(cliproxyModelStates.cooldownUntil, new Date()),
           ),
           or(
-            isNull(bindingRoutes.fallbackCooldownUntil),
-            lte(bindingRoutes.fallbackCooldownUntil, new Date()),
+            isNull(runtimeBindingRoutes.fallbackCooldownUntil),
+            lte(runtimeBindingRoutes.fallbackCooldownUntil, new Date()),
           ),
-          eq(bindingRoutes.enabled, true),
+          eq(runtimeBindingRoutes.enabled, true),
           eq(providerConnections.enabled, true),
         ),
       )
@@ -209,31 +209,29 @@ export async function resolve(
     const resolved = await attachTokens(app, rows.map(applyBindingConfig));
     models = resolved.map((r, position) => ({ resolved: r, position }));
   } else {
-    const resolvedUpstreamModelId = sql<string>`coalesce(${modelBindings}."upstream_model_id", ${bindingRoutes.upstreamModelId})`;
     const rows = await app.db
       .select({
-        model: bindingRoutes,
+        model: runtimeBindingRoutes,
         bindingConfig: bindingConfigSelection,
         connection: providerConnections,
       })
-      .from(bindingRoutes)
-      .innerJoin(modelBindings, eq(modelBindings.id, bindingRoutes.bindingId))
-      .leftJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
+      .from(runtimeBindingRoutes)
+      .innerJoin(bindingModelConfigs, eq(bindingModelConfigs.id, runtimeBindingRoutes.bindingId))
       .leftJoin(
         cliproxyModelStates,
         and(
-          eq(cliproxyModelStates.cliproxyAccountId, modelBindings.cliproxyAccountId),
-          eq(cliproxyModelStates.upstreamModelId, modelPresets.upstreamModelId),
+          eq(cliproxyModelStates.cliproxyAccountId, bindingModelConfigs.cliproxyAccountId),
+          eq(cliproxyModelStates.upstreamModelId, bindingModelConfigs.upstreamModelId),
         ),
       )
       .innerJoin(
         providerConnections,
-        eq(providerConnections.id, modelBindings.connectionId),
+        eq(providerConnections.id, bindingModelConfigs.connectionId),
       )
       .innerJoin(
         connectionTokens,
         and(
-          eq(connectionTokens.id, bindingRoutes.tokenId),
+          eq(connectionTokens.id, runtimeBindingRoutes.tokenId),
           eq(connectionTokens.enabled, true),
           or(
             isNull(connectionTokens.cooldownUntil),
@@ -243,18 +241,18 @@ export async function resolve(
       )
       .where(
         and(
-          eq(modelBindings.userId, userId),
-          eq(resolvedUpstreamModelId, incoming),
+          eq(bindingModelConfigs.userId, userId),
+          eq(bindingModelConfigs.upstreamModelId, incoming),
           or(
             isNull(cliproxyModelStates.id),
             isNull(cliproxyModelStates.cooldownUntil),
             lte(cliproxyModelStates.cooldownUntil, new Date()),
           ),
           or(
-            isNull(bindingRoutes.fallbackCooldownUntil),
-            lte(bindingRoutes.fallbackCooldownUntil, new Date()),
+            isNull(runtimeBindingRoutes.fallbackCooldownUntil),
+            lte(runtimeBindingRoutes.fallbackCooldownUntil, new Date()),
           ),
-          eq(bindingRoutes.enabled, true),
+          eq(runtimeBindingRoutes.enabled, true),
           eq(providerConnections.enabled, true),
         ),
       )
