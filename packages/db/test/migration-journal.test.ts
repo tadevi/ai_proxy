@@ -81,4 +81,33 @@ describe('Drizzle migration metadata', () => {
       expect(sql).toContain(`ALTER COLUMN ${column} SET NOT NULL`);
     }
   });
+
+  it('removes the compatibility layer and stable config from binding routes', () => {
+    const sql = readMigration('0032_drop_legacy_route_config');
+
+    expect(sql.indexOf('DROP VIEW IF EXISTS upstream_models')).toBeLessThan(
+      sql.indexOf('ALTER TABLE binding_routes'),
+    );
+    expect(sql).toContain(
+      'DROP TRIGGER IF EXISTS binding_routes_sync_binding_config ON binding_routes',
+    );
+    expect(sql).toContain('DROP FUNCTION IF EXISTS sync_binding_config_from_route()');
+
+    for (const column of [
+      'display_name',
+      'upstream_model_id',
+      'provider_connection_id',
+      'api_format',
+      'provider_base_path',
+      'request_path_override',
+      'context_length',
+      'max_output_tokens',
+      'supports_streaming',
+      'supports_tools',
+      'supports_images',
+      'supports_reasoning',
+    ]) {
+      expect(sql).toContain(`DROP COLUMN ${column}`);
+    }
+  });
 });
