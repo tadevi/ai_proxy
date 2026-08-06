@@ -5,13 +5,21 @@ import {
   connectionTokens,
   mappingRoutes,
   mappings,
+  modelBindingReasoningCodecs,
   modelBindings,
   modelPresets,
   providerConnections,
   transformationRules,
   upstreamModels,
 } from '@gateway/db';
-import { requestContainsImages, type ResolvedModel, type ResolvedModelBase, type Attempt, type Model, type ProviderConnection } from './schema.js';
+import {
+  requestContainsImages,
+  type ResolvedModel,
+  type ResolvedModelBase,
+  type Attempt,
+  type Model,
+  type ProviderConnection,
+} from './schema.js';
 import type { Rule } from '@gateway/protocol';
 
 const tokenHealthOrder = [
@@ -36,13 +44,26 @@ async function attachTokens(
   const tokenIds = [
     ...new Set(rows.map((r) => r.model.tokenId).filter((id): id is string => id != null)),
   ];
-  const tokens = tokenIds.length
-    ? await app.db.select().from(connectionTokens).where(inArray(connectionTokens.id, tokenIds))
-    : [];
+  const bindingIds = [
+    ...new Set(rows.map((r) => r.model.bindingId).filter((id): id is string => id != null)),
+  ];
+  const [tokens, codecRows] = await Promise.all([
+    tokenIds.length
+      ? app.db.select().from(connectionTokens).where(inArray(connectionTokens.id, tokenIds))
+      : [],
+    bindingIds.length
+      ? app.db
+          .select()
+          .from(modelBindingReasoningCodecs)
+          .where(inArray(modelBindingReasoningCodecs.bindingId, bindingIds))
+      : [],
+  ]);
   const tokenMap = new Map(tokens.map((t) => [t.id, t]));
+  const codecMap = new Map(codecRows.map((row) => [row.bindingId, row.codec]));
   return rows.map((row) => ({
     ...row,
     token: row.model.tokenId ? (tokenMap.get(row.model.tokenId) ?? null) : null,
+    reasoningCodec: row.model.bindingId ? (codecMap.get(row.model.bindingId) ?? 'auto') : 'auto',
   }));
 }
 
@@ -76,7 +97,9 @@ export async function resolve(
   incoming: string,
   request: { messages: unknown[] },
 ): Promise<{ attempts: Attempt[]; skipped: object[] }> {
-  const hasImages = requestContainsImages(request as unknown as Parameters<typeof requestContainsImages>[0]);
+  const hasImages = requestContainsImages(
+    request as unknown as Parameters<typeof requestContainsImages>[0],
+  );
   const [mapping] = await app.db
     .select({ id: mappings.id })
     .from(mappings)
