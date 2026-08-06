@@ -55,4 +55,20 @@ describe('Drizzle migration metadata', () => {
       sql.indexOf('DROP TABLE model_usage_daily'),
     );
   });
+
+  it('requires all binding-owned model config before application cutover', () => {
+    const sql = readMigration('0030_require_binding_owned_model_config');
+
+    expect(sql).toContain("RAISE EXCEPTION 'Cannot require binding-owned model config");
+    for (const column of [
+      'display_name',
+      'upstream_model_id',
+      'supports_streaming',
+      'supports_tools',
+      'supports_images',
+      'supports_reasoning',
+    ]) {
+      expect(sql).toContain(`ALTER COLUMN ${column} SET NOT NULL`);
+    }
+  });
 });
