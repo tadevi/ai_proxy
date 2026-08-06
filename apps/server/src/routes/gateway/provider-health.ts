@@ -1,10 +1,10 @@
 import { and, eq } from 'drizzle-orm';
 import {
+  bindingRoutes,
   cliproxyModelStates,
   connectionTokens,
   modelBindings,
   modelPresets,
-  upstreamModels,
 } from '@gateway/db';
 import type { FastifyInstance } from 'fastify';
 import { logWarn } from '../../log.js';
@@ -18,7 +18,7 @@ export async function recordCombinationSuccess(
 ) {
   const now = new Date();
   await app.db
-    .update(upstreamModels)
+    .update(bindingRoutes)
     .set({
       latestTestStatus: 'healthy',
       latestTestAt: now,
@@ -27,7 +27,7 @@ export async function recordCombinationSuccess(
       fallbackCooldownUntil: null,
       updatedAt: now,
     })
-    .where(eq(upstreamModels.id, combination.id));
+    .where(eq(bindingRoutes.id, combination.id));
 
   if (combination.tokenId) {
     await app.db
@@ -50,7 +50,7 @@ export async function recordModelFailure(
   failure: UpstreamFailure,
 ) {
   await app.db
-    .update(upstreamModels)
+    .update(bindingRoutes)
     .set({
       latestTestStatus: 'failed',
       latestTestAt: new Date(),
@@ -62,7 +62,7 @@ export async function recordModelFailure(
       latestErrorAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(eq(upstreamModels.id, modelId));
+    .where(eq(bindingRoutes.id, modelId));
 }
 
 export async function placeTokenInCooldown(
@@ -113,9 +113,9 @@ export async function setModelFallbackCooldown(
 ) {
   const until = new Date(Date.now() + durationMs);
   await app.db
-    .update(upstreamModels)
+    .update(bindingRoutes)
     .set({ fallbackCooldownUntil: until, updatedAt: new Date() })
-    .where(eq(upstreamModels.id, modelId));
+    .where(eq(bindingRoutes.id, modelId));
 }
 
 async function cliproxyModelKey(
