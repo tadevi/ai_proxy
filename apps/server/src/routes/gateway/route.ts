@@ -1,10 +1,11 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { IncomingMessage } from 'node:http';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import {
+  bindingRoutes,
+  bindingTransformationRules,
   connectionTokens,
-  transformationRules,
-  upstreamModels,
+  modelBindings,
   providerConnections,
 } from '@gateway/db';
 import { anthropicError } from '@gateway/shared';
@@ -18,6 +19,8 @@ import { logWarn } from '../../log.js';
 import {
   type ConnectionToken,
   type Attempt,
+  type Model,
+  type ProviderConnection,
   UpstreamFailure,
   isRecord,
   isCliproxyCredentialCooldown,
@@ -41,6 +44,62 @@ import {
   cooldownCliproxyModel,
 } from './provider-health.js';
 
+const bindingConfigSelection = {
+  displayName: sql<string>`${modelBindings}."display_name"`,
+  upstreamModelId: sql<string>`${modelBindings}."upstream_model_id"`,
+  providerConnectionId: modelBindings.connectionId,
+  apiFormat: modelBindings.apiFormat,
+  providerBasePath: modelBindings.providerBasePath,
+  requestPathOverride: sql<string | null>`${modelBindings}."request_path_override"`,
+  contextLength: sql<number | null>`${modelBindings}."context_length"`,
+  maxOutputTokens: sql<number | null>`${modelBindings}."max_output_tokens"`,
+  supportsStreaming: sql<Model['supportsStreaming']>`${modelBindings}."supports_streaming"`,
+  supportsTools: sql<Model['supportsTools']>`${modelBindings}."supports_tools"`,
+  supportsImages: sql<Model['supportsImages']>`${modelBindings}."supports_images"`,
+  supportsReasoning: sql<Model['supportsReasoning']>`${modelBindings}."supports_reasoning"`,
+};
+
+type BindingConfig = {
+  displayName: string;
+  upstreamModelId: string;
+  providerConnectionId: string;
+  apiFormat: Model['apiFormat'];
+  providerBasePath: string;
+  requestPathOverride: string | null;
+  contextLength: number | null;
+  maxOutputTokens: number | null;
+  supportsStreaming: Model['supportsStreaming'];
+  supportsTools: Model['supportsTools'];
+  supportsImages: Model['supportsImages'];
+  supportsReasoning: Model['supportsReasoning'];
+};
+
+function applyBindingConfig(row: {
+  model: Model;
+  bindingConfig: BindingConfig;
+  connection: ProviderConnection;
+}) {
+  return {
+    model: { ...row.model, ...row.bindingConfig },
+    connection: row.connection,
+  };
+}
+
+async function loadDashboardModel(app: FastifyInstance, userId: string, id: string) {
+  const [row] = await app.db
+    .select({
+      model: bindingRoutes,
+      bindingConfig: bindingConfigSelection,
+      connection: providerConnections,
+    })
+    .from(bindingRoutes)
+    .innerJoin(modelBindings, eq(modelBindings.id, bindingRoutes.bindingId))
+    .innerJoin(providerConnections, eq(providerConnections.id, modelBindings.connectionId))
+    .where(and(eq(bindingRoutes.id, id), eq(modelBindings.userId, userId)))
+    .limit(1);
+  return row ? applyBindingConfig(row) : undefined;
+}
+
 export function requestSignal(request: IncomingMessage): AbortSignal {
   const controller = new AbortController();
   request.once('aborted', () => controller.abort());
@@ -53,16 +112,17 @@ export async function gatewayRoutes(app: FastifyInstance) {
     { preHandler: (req, reply) => gatewayAuth(app, req, reply) },
     async (req) => {
       const models = await app.db
-        .select({ id: upstreamModels.upstreamModelId, createdAt: upstreamModels.createdAt })
-        .from(upstreamModels)
-        .innerJoin(
-          providerConnections,
-          eq(providerConnections.id, upstreamModels.providerConnectionId),
-        )
+        .selectDistinct({
+          id: sql<string>`${modelBindings}."upstream_model_id"`,
+          createdAt: modelBindings.createdAt,
+        })
+        .from(modelBindings)
+        .innerJoin(bindingRoutes, eq(bindingRoutes.bindingId, modelBindings.id))
+        .innerJoin(providerConnections, eq(providerConnections.id, modelBindings.connectionId))
         .where(
           and(
-            eq(upstreamModels.userId, req.gatewayUserId!),
-            eq(upstreamModels.enabled, true),
+            eq(modelBindings.userId, req.gatewayUserId!),
+            eq(bindingRoutes.enabled, true),
             eq(providerConnections.enabled, true),
           ),
         );
@@ -95,15 +155,7 @@ export async function gatewayRoutes(app: FastifyInstance) {
   app.post('/api/models/:id/test', async (req, reply) => {
     const userId = req.dashboardUser!.id;
     const id = (req.params as { id: string }).id;
-    const [row] = await app.db
-      .select({ model: upstreamModels, connection: providerConnections })
-      .from(upstreamModels)
-      .innerJoin(
-        providerConnections,
-        eq(providerConnections.id, upstreamModels.providerConnectionId),
-      )
-      .where(and(eq(upstreamModels.id, id), eq(upstreamModels.userId, userId)))
-      .limit(1);
+    const row = await loadDashboardModel(app, userId, id);
     if (!row) return reply.code(404).send({ error: 'Model not found' });
 
     let token: ConnectionToken | null = null;
@@ -120,11 +172,13 @@ export async function gatewayRoutes(app: FastifyInstance) {
         .limit(1);
       token = t ?? null;
     }
-    const ruleRows = await app.db
-      .select()
-      .from(transformationRules)
-      .where(eq(transformationRules.upstreamModelId, row.model.id))
-      .orderBy(asc(transformationRules.position));
+    const ruleRows = row.model.bindingId
+      ? await app.db
+          .select()
+          .from(bindingTransformationRules)
+          .where(eq(bindingTransformationRules.bindingId, row.model.bindingId))
+          .orderBy(asc(bindingTransformationRules.position))
+      : [];
     const rules = ruleRows.map(toRule);
     const test: AnthropicRequest = {
       model: row.model.upstreamModelId,
@@ -158,14 +212,14 @@ export async function gatewayRoutes(app: FastifyInstance) {
       if (error instanceof UpstreamFailure && isCliproxyCredentialCooldown(error))
         await cooldownCliproxyModel(app, row.model, error);
       await app.db
-        .update(upstreamModels)
+        .update(bindingRoutes)
         .set({
           latestTestStatus: 'failed',
           latestTestAt: new Date(),
           latestError,
           latestErrorAt: new Date(),
         })
-        .where(eq(upstreamModels.id, id));
+        .where(eq(bindingRoutes.id, id));
       return reply.code(502).send({ ok: false, message });
     }
   });
@@ -187,15 +241,7 @@ export async function gatewayRoutes(app: FastifyInstance) {
     if (!modelId || !prompt)
       return reply.code(400).send({ error: 'modelId and prompt are required' });
 
-    const [row] = await app.db
-      .select({ model: upstreamModels, connection: providerConnections })
-      .from(upstreamModels)
-      .innerJoin(
-        providerConnections,
-        eq(providerConnections.id, upstreamModels.providerConnectionId),
-      )
-      .where(and(eq(upstreamModels.id, modelId), eq(upstreamModels.userId, userId)))
-      .limit(1);
+    const row = await loadDashboardModel(app, userId, modelId);
     if (!row) return reply.code(404).send({ error: 'Model not found' });
 
     let token: ConnectionToken | null = null;
@@ -212,11 +258,13 @@ export async function gatewayRoutes(app: FastifyInstance) {
         .limit(1);
       token = t ?? null;
     }
-    const ruleRows = await app.db
-      .select()
-      .from(transformationRules)
-      .where(eq(transformationRules.upstreamModelId, row.model.id))
-      .orderBy(asc(transformationRules.position));
+    const ruleRows = row.model.bindingId
+      ? await app.db
+          .select()
+          .from(bindingTransformationRules)
+          .where(eq(bindingTransformationRules.bindingId, row.model.bindingId))
+          .orderBy(asc(bindingTransformationRules.position))
+      : [];
     const rules = ruleRows.map(toRule);
     const content: Array<Record<string, unknown>> = [];
     if (body.imageBase64 && body.imageMediaType) {
