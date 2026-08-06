@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import {
+  bindingRoutes,
   cliproxyAccounts,
   connectionTokens,
   mappings,
@@ -8,7 +9,6 @@ import {
   modelPresets,
   providerConnections,
   sessions,
-  upstreamModels,
 } from '@gateway/db';
 import { aliases } from '@gateway/shared';
 import { hashSecret, isUniqueViolation, randomToken } from '../../security.js';
@@ -30,35 +30,35 @@ export function isCliproxyConnection(app: FastifyInstance, baseUrl: string) {
 }
 
 export const safeModel = {
-  id: upstreamModels.id,
-  displayName: upstreamModels.displayName,
-  upstreamModelId: upstreamModels.upstreamModelId,
-  providerConnectionId: upstreamModels.providerConnectionId,
+  id: bindingRoutes.id,
+  displayName: sql<string>`${modelBindings}."display_name"`,
+  upstreamModelId: sql<string>`${modelBindings}."upstream_model_id"`,
+  providerConnectionId: modelBindings.connectionId,
   providerConnectionName: providerConnections.displayName,
-  bindingId: upstreamModels.bindingId,
-  tokenId: upstreamModels.tokenId,
+  bindingId: bindingRoutes.bindingId,
+  tokenId: bindingRoutes.tokenId,
   tokenName: connectionTokens.name,
   cliproxyAccountLabel: cliproxyAccounts.label,
   cliproxyAccountPrefix: cliproxyAccounts.prefix,
   tokenEnabled: connectionTokens.enabled,
   tokenCooldownUntil: connectionTokens.cooldownUntil,
-  apiFormat: upstreamModels.apiFormat,
-  providerBasePath: upstreamModels.providerBasePath,
-  requestPathOverride: upstreamModels.requestPathOverride,
+  apiFormat: modelBindings.apiFormat,
+  providerBasePath: modelBindings.providerBasePath,
+  requestPathOverride: sql<string | null>`${modelBindings}."request_path_override"`,
   providerEnabled: providerConnections.enabled,
-  contextLength: upstreamModels.contextLength,
-  maxOutputTokens: upstreamModels.maxOutputTokens,
-  supportsStreaming: upstreamModels.supportsStreaming,
-  supportsTools: upstreamModels.supportsTools,
-  supportsImages: upstreamModels.supportsImages,
-  supportsReasoning: upstreamModels.supportsReasoning,
-  enabled: upstreamModels.enabled,
-  latestTestStatus: upstreamModels.latestTestStatus,
-  latestTestAt: upstreamModels.latestTestAt,
-  latestError: upstreamModels.latestError,
-  latestErrorAt: upstreamModels.latestErrorAt,
-  createdAt: upstreamModels.createdAt,
-  updatedAt: upstreamModels.updatedAt,
+  contextLength: sql<number | null>`${modelBindings}."context_length"`,
+  maxOutputTokens: sql<number | null>`${modelBindings}."max_output_tokens"`,
+  supportsStreaming: sql<'yes' | 'no' | 'unknown'>`${modelBindings}."supports_streaming"`,
+  supportsTools: sql<'yes' | 'no' | 'unknown'>`${modelBindings}."supports_tools"`,
+  supportsImages: sql<'yes' | 'no' | 'unknown'>`${modelBindings}."supports_images"`,
+  supportsReasoning: sql<'yes' | 'no' | 'unknown'>`${modelBindings}."supports_reasoning"`,
+  enabled: bindingRoutes.enabled,
+  latestTestStatus: bindingRoutes.latestTestStatus,
+  latestTestAt: bindingRoutes.latestTestAt,
+  latestError: bindingRoutes.latestError,
+  latestErrorAt: bindingRoutes.latestErrorAt,
+  createdAt: bindingRoutes.createdAt,
+  updatedAt: bindingRoutes.updatedAt,
 };
 
 export function slug(value: string) {
@@ -120,9 +120,9 @@ export async function ownsModel(app: FastifyInstance, userId: string, id: string
   return (
     (
       await app.db
-        .select({ id: upstreamModels.id })
-        .from(upstreamModels)
-        .where(and(eq(upstreamModels.id, id), eq(upstreamModels.userId, userId)))
+        .select({ id: bindingRoutes.id })
+        .from(bindingRoutes)
+        .where(and(eq(bindingRoutes.id, id), eq(bindingRoutes.userId, userId)))
         .limit(1)
     ).length === 1
   );
@@ -148,30 +148,24 @@ export async function ownsConnection(app: FastifyInstance, userId: string, id: s
 export function listModels(app: FastifyInstance, userId: string) {
   return app.db
     .select(safeModel)
-    .from(upstreamModels)
-    .innerJoin(
-      providerConnections,
-      eq(providerConnections.id, upstreamModels.providerConnectionId),
-    )
-    .leftJoin(connectionTokens, eq(connectionTokens.id, upstreamModels.tokenId))
-    .leftJoin(modelBindings, eq(modelBindings.id, upstreamModels.bindingId))
+    .from(bindingRoutes)
+    .innerJoin(modelBindings, eq(modelBindings.id, bindingRoutes.bindingId))
+    .innerJoin(providerConnections, eq(providerConnections.id, modelBindings.connectionId))
+    .leftJoin(connectionTokens, eq(connectionTokens.id, bindingRoutes.tokenId))
     .leftJoin(cliproxyAccounts, eq(cliproxyAccounts.id, modelBindings.cliproxyAccountId))
-    .where(eq(upstreamModels.userId, userId))
-    .orderBy(desc(upstreamModels.createdAt));
+    .where(eq(modelBindings.userId, userId))
+    .orderBy(desc(bindingRoutes.createdAt));
 }
 
 export async function getModel(app: FastifyInstance, userId: string, id: string) {
   const [model] = await app.db
     .select(safeModel)
-    .from(upstreamModels)
-    .innerJoin(
-      providerConnections,
-      eq(providerConnections.id, upstreamModels.providerConnectionId),
-    )
-    .leftJoin(connectionTokens, eq(connectionTokens.id, upstreamModels.tokenId))
-    .leftJoin(modelBindings, eq(modelBindings.id, upstreamModels.bindingId))
+    .from(bindingRoutes)
+    .innerJoin(modelBindings, eq(modelBindings.id, bindingRoutes.bindingId))
+    .innerJoin(providerConnections, eq(providerConnections.id, modelBindings.connectionId))
+    .leftJoin(connectionTokens, eq(connectionTokens.id, bindingRoutes.tokenId))
     .leftJoin(cliproxyAccounts, eq(cliproxyAccounts.id, modelBindings.cliproxyAccountId))
-    .where(and(eq(upstreamModels.id, id), eq(upstreamModels.userId, userId)))
+    .where(and(eq(bindingRoutes.id, id), eq(modelBindings.userId, userId)))
     .limit(1);
   return model;
 }
@@ -217,7 +211,7 @@ export async function createUpstreamModelsForToken(
 
     const displayName = `${preset.displayName} (${token.name} @ ${connection.displayName})`;
     try {
-      await app.db.insert(upstreamModels).values({
+      await app.db.insert(bindingRoutes).values({
         userId,
         displayName,
         upstreamModelId: cliproxyAccount
@@ -279,7 +273,7 @@ export async function createUpstreamModelsForBinding(
   for (const token of tokens) {
     const displayName = `${preset.displayName} (${token.name} @ ${connection.displayName})`;
     try {
-      await app.db.insert(upstreamModels).values({
+      await app.db.insert(bindingRoutes).values({
         userId,
         displayName,
         upstreamModelId: resolvedModelId,
