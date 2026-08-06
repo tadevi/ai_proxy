@@ -1,13 +1,13 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import {
-  bindingRoutes,
   cliproxyAccounts,
   connectionTokens,
   mappings,
   modelBindings,
   modelPresets,
   providerConnections,
+  runtimeBindingRoutes,
   sessions,
 } from '@gateway/db';
 import { aliases } from '@gateway/shared';
@@ -30,13 +30,13 @@ export function isCliproxyConnection(app: FastifyInstance, baseUrl: string) {
 }
 
 export const safeModel = {
-  id: bindingRoutes.id,
+  id: runtimeBindingRoutes.id,
   displayName: sql<string>`${modelBindings}."display_name"`,
   upstreamModelId: sql<string>`${modelBindings}."upstream_model_id"`,
   providerConnectionId: modelBindings.connectionId,
   providerConnectionName: providerConnections.displayName,
-  bindingId: bindingRoutes.bindingId,
-  tokenId: bindingRoutes.tokenId,
+  bindingId: runtimeBindingRoutes.bindingId,
+  tokenId: runtimeBindingRoutes.tokenId,
   tokenName: connectionTokens.name,
   cliproxyAccountLabel: cliproxyAccounts.label,
   cliproxyAccountPrefix: cliproxyAccounts.prefix,
@@ -52,13 +52,13 @@ export const safeModel = {
   supportsTools: sql<'yes' | 'no' | 'unknown'>`${modelBindings}."supports_tools"`,
   supportsImages: sql<'yes' | 'no' | 'unknown'>`${modelBindings}."supports_images"`,
   supportsReasoning: sql<'yes' | 'no' | 'unknown'>`${modelBindings}."supports_reasoning"`,
-  enabled: bindingRoutes.enabled,
-  latestTestStatus: bindingRoutes.latestTestStatus,
-  latestTestAt: bindingRoutes.latestTestAt,
-  latestError: bindingRoutes.latestError,
-  latestErrorAt: bindingRoutes.latestErrorAt,
-  createdAt: bindingRoutes.createdAt,
-  updatedAt: bindingRoutes.updatedAt,
+  enabled: runtimeBindingRoutes.enabled,
+  latestTestStatus: runtimeBindingRoutes.latestTestStatus,
+  latestTestAt: runtimeBindingRoutes.latestTestAt,
+  latestError: runtimeBindingRoutes.latestError,
+  latestErrorAt: runtimeBindingRoutes.latestErrorAt,
+  createdAt: runtimeBindingRoutes.createdAt,
+  updatedAt: runtimeBindingRoutes.updatedAt,
 };
 
 export function slug(value: string) {
@@ -120,9 +120,9 @@ export async function ownsModel(app: FastifyInstance, userId: string, id: string
   return (
     (
       await app.db
-        .select({ id: bindingRoutes.id })
-        .from(bindingRoutes)
-        .where(and(eq(bindingRoutes.id, id), eq(bindingRoutes.userId, userId)))
+        .select({ id: runtimeBindingRoutes.id })
+        .from(runtimeBindingRoutes)
+        .where(and(eq(runtimeBindingRoutes.id, id), eq(runtimeBindingRoutes.userId, userId)))
         .limit(1)
     ).length === 1
   );
@@ -148,24 +148,24 @@ export async function ownsConnection(app: FastifyInstance, userId: string, id: s
 export function listModels(app: FastifyInstance, userId: string) {
   return app.db
     .select(safeModel)
-    .from(bindingRoutes)
-    .innerJoin(modelBindings, eq(modelBindings.id, bindingRoutes.bindingId))
+    .from(runtimeBindingRoutes)
+    .innerJoin(modelBindings, eq(modelBindings.id, runtimeBindingRoutes.bindingId))
     .innerJoin(providerConnections, eq(providerConnections.id, modelBindings.connectionId))
-    .leftJoin(connectionTokens, eq(connectionTokens.id, bindingRoutes.tokenId))
+    .leftJoin(connectionTokens, eq(connectionTokens.id, runtimeBindingRoutes.tokenId))
     .leftJoin(cliproxyAccounts, eq(cliproxyAccounts.id, modelBindings.cliproxyAccountId))
     .where(eq(modelBindings.userId, userId))
-    .orderBy(desc(bindingRoutes.createdAt));
+    .orderBy(desc(runtimeBindingRoutes.createdAt));
 }
 
 export async function getModel(app: FastifyInstance, userId: string, id: string) {
   const [model] = await app.db
     .select(safeModel)
-    .from(bindingRoutes)
-    .innerJoin(modelBindings, eq(modelBindings.id, bindingRoutes.bindingId))
+    .from(runtimeBindingRoutes)
+    .innerJoin(modelBindings, eq(modelBindings.id, runtimeBindingRoutes.bindingId))
     .innerJoin(providerConnections, eq(providerConnections.id, modelBindings.connectionId))
-    .leftJoin(connectionTokens, eq(connectionTokens.id, bindingRoutes.tokenId))
+    .leftJoin(connectionTokens, eq(connectionTokens.id, runtimeBindingRoutes.tokenId))
     .leftJoin(cliproxyAccounts, eq(cliproxyAccounts.id, modelBindings.cliproxyAccountId))
-    .where(and(eq(bindingRoutes.id, id), eq(modelBindings.userId, userId)))
+    .where(and(eq(runtimeBindingRoutes.id, id), eq(modelBindings.userId, userId)))
     .limit(1);
   return model;
 }
@@ -254,20 +254,11 @@ export async function createUpstreamModelsForToken(
       supportsReasoning: preset.supportsReasoning,
     });
 
-    const displayName = `${preset.displayName} (${token.name} @ ${connection.displayName})`;
     try {
-      await app.db.insert(bindingRoutes).values({
+      await app.db.insert(runtimeBindingRoutes).values({
         userId,
-        displayName,
-        upstreamModelId: resolvedModelId,
-        providerConnectionId: connectionId,
         bindingId: binding.id,
         tokenId,
-        apiFormat: binding.apiFormat,
-        providerBasePath: binding.providerBasePath,
-        supportsImages: preset.supportsImages,
-        supportsReasoning: preset.supportsReasoning,
-        maxOutputTokens: preset.maxOutputTokens,
       });
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
@@ -288,8 +279,8 @@ export async function createUpstreamModelsForBinding(
     supportsReasoning: string;
     maxOutputTokens: number | null;
   },
-  apiFormat: string,
-  providerBasePath: string,
+  _apiFormat: string,
+  _providerBasePath: string,
   cliproxyAccountPrefix: string | undefined,
 ) {
   const [connection] = await app.db
@@ -312,7 +303,7 @@ export async function createUpstreamModelsForBinding(
   });
 
   const tokens = await app.db
-    .select({ id: connectionTokens.id, name: connectionTokens.name })
+    .select({ id: connectionTokens.id })
     .from(connectionTokens)
     .where(
       and(
@@ -322,20 +313,11 @@ export async function createUpstreamModelsForBinding(
     );
 
   for (const token of tokens) {
-    const displayName = `${preset.displayName} (${token.name} @ ${connection.displayName})`;
     try {
-      await app.db.insert(bindingRoutes).values({
+      await app.db.insert(runtimeBindingRoutes).values({
         userId,
-        displayName,
-        upstreamModelId: resolvedModelId,
-        providerConnectionId: connectionId,
         bindingId,
         tokenId: token.id,
-        apiFormat: apiFormat as 'openai_compatible' | 'anthropic_compatible',
-        providerBasePath,
-        supportsImages: preset.supportsImages as 'yes' | 'no',
-        supportsReasoning: preset.supportsReasoning as 'yes' | 'no',
-        maxOutputTokens: preset.maxOutputTokens,
       });
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
