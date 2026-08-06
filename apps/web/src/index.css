@@ -52,3 +52,53 @@ textarea {
     @apply text-sm text-zinc-400;
   }
 }
+
+/* Connection cards: compact, but with balanced breathing room. */
+article.overflow-hidden.rounded-xl > div:first-child {
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+}
+
+article.overflow-hidden.rounded-xl > div.border-t {
+  gap: 1.25rem;
+  padding: 1.25rem;
+}
+
+article.overflow-hidden.rounded-xl section > div:first-child {
+  margin-bottom: 0.625rem;
+}
+
+article.overflow-hidden.rounded-xl section > div:last-child > div {
+  min-height: 3.25rem;
+  padding: 0.75rem 1rem;
+}
+
+article.overflow-hidden.rounded-xl button[aria-expanded] {
+  position: relative;
+}
+
+article.overflow-hidden.rounded-xl button[aria-expanded] > span {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  color: transparent;
+  font-size: 0;
+  transform: rotate(45deg);
+  transition: transform 150ms ease;
+}
+
+article.overflow-hidden.rounded-xl button[aria-expanded='true'] > span {
+  transform: rotate(225deg);
+}
+
+@media (max-width: 640px) {
+  article.overflow-hidden.rounded-xl > div:first-child {
+    gap: 0.75rem;
+    padding: 0.875rem 1rem;
+  }
+
+  article.overflow-hidden.rounded-xl > div.border-t {
+    padding: 1rem;
+  }
+}
