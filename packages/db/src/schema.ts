@@ -256,7 +256,7 @@ export const requestLogs = pgTable(
     requestId: text('request_id').notNull(),
     incomingModel: text('incoming_model').notNull(),
     resolvedUpstreamModel: text('resolved_upstream_model'),
-    resolvedUpstreamModelId: uuid('resolved_upstream_model_id'),
+    resolvedUpstreamModelId: uuid('binding_route_id'),
     apiFormat: apiFormat('api_format'),
     status: integer('status').notNull(),
     latencyMs: integer('latency_ms').notNull(),
