@@ -313,7 +313,6 @@ import { registerConnectionRoutes } from './connection-routes.js';
 import { registerModelRoutes } from './model-routes.js';
 import { registerLogsRoutes } from './logs-routes.js';
 import { registerKeyRoutes } from './key-routes.js';
-import { registerReasoningCodecRoutes } from './reasoning-codec-routes.js';
 
 export async function dashboardRoutes(app: FastifyInstance) {
   await registerAuthRoutes(app);
@@ -321,7 +320,6 @@ export async function dashboardRoutes(app: FastifyInstance) {
   await registerModelRoutes(app);
   await registerKeyRoutes(app);
   await registerLogsRoutes(app);
-  await registerReasoningCodecRoutes(app);
 }
 
 export async function ensureMappings(app: FastifyInstance, userId: string) {

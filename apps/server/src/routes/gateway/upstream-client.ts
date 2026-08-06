@@ -52,18 +52,6 @@ export function reasoningWireFormat(connection: ProviderConnection): ReasoningWi
   }
 }
 
-export function resolvedReasoningWireFormat(
-  resolved: Pick<ResolvedModel, 'connection' | 'reasoningCodec'>,
-  cliproxyBaseUrl?: string,
-): ReasoningWireFormat {
-  const isCliproxy =
-    !!cliproxyBaseUrl &&
-    resolved.connection.baseUrl.replace(/\/$/, '') === cliproxyBaseUrl.replace(/\/$/, '');
-  if (isCliproxy || !resolved.reasoningCodec || resolved.reasoningCodec === 'auto')
-    return reasoningWireFormat(resolved.connection);
-  return resolved.reasoningCodec;
-}
-
 export async function readProviderError(response: Response): Promise<ProviderErrorDetails> {
   const details: ProviderErrorDetails = { upstreamStatus: response.status };
   const requestId =
@@ -160,7 +148,7 @@ export async function callModel(
           });
           return state ? { data: state.data, format: state.format } : null;
         },
-        resolvedReasoningWireFormat(resolved, app.config.CLIPROXY_BASE_URL),
+        reasoningWireFormat(connection),
       );
       const signatureCount = Array.isArray(body.messages)
         ? body.messages.reduce((count, message) => {

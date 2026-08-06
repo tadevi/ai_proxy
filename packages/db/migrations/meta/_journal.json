@@ -155,13 +155,6 @@
       "when": 1785949800000,
       "tag": "0021_request_log_reasoning_details",
       "breakpoints": true
-    },
-    {
-      "idx": 22,
-      "version": "7",
-      "when": 1785986500000,
-      "tag": "0022_binding_reasoning_codec",
-      "breakpoints": true
     }
   ]
 }

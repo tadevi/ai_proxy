@@ -3,12 +3,10 @@ import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import {
   cliproxyAccounts,
   connectionTokens,
-  modelBindingReasoningCodecs,
   modelBindings,
   modelPresets,
   upstreamModels,
   providerConnections,
-  type ReasoningCodec,
 } from '@gateway/db';
 import {
   connectionTokenInputSchema,
@@ -296,7 +294,6 @@ export async function registerConnectionRoutes(app: FastifyInstance) {
     apiFormatOverride: 'openai_compatible' | 'anthropic_compatible' | undefined,
     providerBasePath: string,
     cliproxyAccountId: string | null | undefined,
-    reasoningCodec: ReasoningCodec,
   ) {
     const [preset] = await app.db
       .select()
@@ -321,10 +318,9 @@ export async function registerConnectionRoutes(app: FastifyInstance) {
       .limit(1);
     if (!connection) throw new Error('Provider connection not found');
 
-    const cliproxy = isCliproxyConnection(app, connection.baseUrl);
-    if (cliproxy && !cliproxyAccountId)
+    if (isCliproxyConnection(app, connection.baseUrl) && !cliproxyAccountId)
       throw new Error('Select a CLIProxy account for this binding');
-    if (!cliproxy && cliproxyAccountId)
+    if (!isCliproxyConnection(app, connection.baseUrl) && cliproxyAccountId)
       throw new Error('CLIProxy accounts can only be used with the CLIProxyAPI connection');
 
     const [cliproxyAccount] = cliproxyAccountId
@@ -342,11 +338,6 @@ export async function registerConnectionRoutes(app: FastifyInstance) {
     if (cliproxyAccountId && !cliproxyAccount) throw new Error('CLIProxy account not found');
 
     const apiFormat = apiFormatOverride ?? preset.apiFormat;
-    if ((cliproxy || apiFormat !== 'openai_compatible') && reasoningCodec !== 'auto')
-      throw new Error(
-        'Reasoning codec only applies to external OpenAI-compatible bindings',
-      );
-
     let inserted: typeof modelBindings.$inferSelect | undefined;
     try {
       [inserted] = await app.db
@@ -367,14 +358,6 @@ export async function registerConnectionRoutes(app: FastifyInstance) {
         );
       throw error;
     }
-
-    if (!cliproxy && apiFormat === 'openai_compatible') {
-      await app.db.insert(modelBindingReasoningCodecs).values({
-        bindingId: inserted!.id,
-        codec: reasoningCodec,
-      });
-    }
-
     const binding = {
       ...inserted!,
       presetDisplayName: preset.displayName,
@@ -408,7 +391,6 @@ export async function registerConnectionRoutes(app: FastifyInstance) {
           input.apiFormat,
           input.providerBasePath,
           input.cliproxyAccountId,
-          input.reasoningCodec,
         ),
       ),
     );
