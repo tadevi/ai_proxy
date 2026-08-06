@@ -30,7 +30,7 @@ import { managedStream, rawStream } from './stream-handler.js';
 const reasoningState = createReasoningStateStore();
 const reasoningCodecByBindingId = new Map<string, ReasoningWireFormat>();
 
-function requestReasoningSignatures(request: AnthropicRequest): string[] {
+export function requestReasoningSignatures(request: AnthropicRequest): string[] {
   const signatures: string[] = [];
   for (const message of request.messages) {
     if (!Array.isArray(message.content)) continue;
@@ -39,7 +39,8 @@ function requestReasoningSignatures(request: AnthropicRequest): string[] {
       const record = block as Record<string, unknown>;
       if (
         (record.type === 'thinking' || record.type === 'redacted_thinking') &&
-        typeof record.signature === 'string'
+        typeof record.signature === 'string' &&
+        record.signature.startsWith('proxy:rs_')
       ) {
         signatures.push(record.signature);
       }
