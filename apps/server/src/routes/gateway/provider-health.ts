@@ -11,17 +11,43 @@ import { logWarn } from '../../log.js';
 import { cooldownDurationMs, type Model, type UpstreamFailure } from './schema.js';
 
 export async function recordModelSuccess(app: FastifyInstance, modelId: string) {
+  const [model] = await app.db
+    .select({
+      id: upstreamModels.id,
+      tokenId: upstreamModels.tokenId,
+      bindingId: upstreamModels.bindingId,
+    })
+    .from(upstreamModels)
+    .where(eq(upstreamModels.id, modelId))
+    .limit(1);
+  if (!model) return;
+
+  const now = new Date();
   await app.db
     .update(upstreamModels)
     .set({
       latestTestStatus: 'healthy',
-      latestTestAt: new Date(),
+      latestTestAt: now,
       latestError: null,
       latestErrorAt: null,
       fallbackCooldownUntil: null,
-      updatedAt: new Date(),
+      updatedAt: now,
     })
-    .where(eq(upstreamModels.id, modelId));
+    .where(eq(upstreamModels.id, model.id));
+
+  if (model.tokenId) {
+    await app.db
+      .update(connectionTokens)
+      .set({
+        cooldownUntil: null,
+        latestError: null,
+        latestErrorAt: null,
+        updatedAt: now,
+      })
+      .where(eq(connectionTokens.id, model.tokenId));
+  }
+
+  await clearCliproxyModelCooldown(app, model);
 }
 
 export async function recordModelFailure(
@@ -98,7 +124,10 @@ export async function setModelFallbackCooldown(
     .where(eq(upstreamModels.id, modelId));
 }
 
-async function cliproxyModelKey(app: FastifyInstance, model: Model) {
+async function cliproxyModelKey(
+  app: FastifyInstance,
+  model: Pick<Model, 'bindingId'>,
+) {
   if (!model.bindingId) return undefined;
   const [key] = await app.db
     .select({
@@ -150,7 +179,10 @@ export async function cooldownCliproxyModel(
   return true;
 }
 
-export async function clearCliproxyModelCooldown(app: FastifyInstance, model: Model) {
+export async function clearCliproxyModelCooldown(
+  app: FastifyInstance,
+  model: Pick<Model, 'bindingId'>,
+) {
   const key = await cliproxyModelKey(app, model);
   if (!key) return false;
   await app.db
