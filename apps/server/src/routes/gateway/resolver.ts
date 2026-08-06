@@ -20,7 +20,12 @@ const tokenHealthOrder = [
   asc(bindingRoutes.id),
 ];
 
-export function toRule(row: typeof bindingTransformationRules.$inferSelect): Rule {
+type RuleRow = Pick<
+  typeof bindingTransformationRules.$inferSelect,
+  'type' | 'enabled' | 'position' | 'configJson'
+>;
+
+export function toRule(row: RuleRow): Rule {
   return {
     type: row.type,
     enabled: row.enabled,
