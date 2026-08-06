@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { cliproxyModelStates, connectionTokens, upstreamModels } from '@gateway/db';
+import { bindingRoutes, cliproxyModelStates, connectionTokens } from '@gateway/db';
 import { recordCombinationSuccess } from '../src/routes/gateway/provider-health.js';
 
 type UpdateCall = { table: unknown; values: Record<string, unknown> };
@@ -11,21 +11,21 @@ function createApp() {
   const deletes: DeleteCall[] = [];
   let selectCount = 0;
 
+  const result = [
+    {
+      cliproxyAccountId: 'account-1',
+      upstreamModelId: 'claude-sonnet',
+    },
+  ];
+  const where = () => ({ limit: async () => result });
+
   const db = {
     select: () => {
       selectCount += 1;
       return {
         from: () => ({
-          innerJoin: () => ({
-            where: () => ({
-              limit: async () => [
-                {
-                  cliproxyAccountId: 'account-1',
-                  upstreamModelId: 'claude-sonnet',
-                },
-              ],
-            }),
-          }),
+          where,
+          innerJoin: () => ({ where }),
         }),
       };
     },
@@ -62,7 +62,7 @@ describe('recordCombinationSuccess', () => {
     });
 
     expect(updates).toHaveLength(2);
-    expect(updates[0]?.table).toBe(upstreamModels);
+    expect(updates[0]?.table).toBe(bindingRoutes);
     expect(updates[0]?.values).toMatchObject({
       latestTestStatus: 'healthy',
       latestError: null,
@@ -90,7 +90,7 @@ describe('recordCombinationSuccess', () => {
     });
 
     expect(updates).toHaveLength(1);
-    expect(updates[0]?.table).toBe(upstreamModels);
+    expect(updates[0]?.table).toBe(bindingRoutes);
     expect(deletes).toHaveLength(0);
     expect(getSelectCount()).toBe(0);
   });
