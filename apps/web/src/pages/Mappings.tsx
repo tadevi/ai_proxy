@@ -39,9 +39,9 @@ export function Mappings() {
   }
   return (
     <div>
-      <div className="mb-7">
+      <div className="mb-5">
         <h1 className="text-2xl font-bold tracking-tight">Mappings</h1>
-        <p className="mt-1.5 max-w-2xl text-[14.5px] text-zinc-400">
+        <p className="mt-1 max-w-2xl text-sm text-zinc-400">
           Bindings are attempted from top to bottom; the gateway picks which token to use within
           each. Changes save immediately.
         </p>
@@ -49,7 +49,7 @@ export function Mappings() {
           <p className="mt-2 text-sm text-red-400">Could not save: {save.error.message}</p>
         )}
       </div>
-      <div className="flex flex-wrap gap-5">
+      <div className="grid gap-4 lg:grid-cols-3">
         {mappings.data?.map((m) => (
           <Column
             key={m.alias}
@@ -102,21 +102,25 @@ function Column({
   }
 
   return (
-    <div className="flex min-w-[280px] flex-1 flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/60 px-5 pt-[22px] pb-5">
-      <div className="mb-[22px]">
-        <h2 className="m-0 text-[19px] font-semibold tracking-tight text-zinc-100 capitalize">
-          {mapping.alias}
-        </h2>
-        <span className="mt-1 block font-mono text-[11px] tracking-[0.08em] text-zinc-500 uppercase">
+    <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+      <div className="mb-4">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="m-0 text-lg font-semibold tracking-tight text-zinc-100 capitalize">
+            {mapping.alias}
+          </h2>
+          <span className="font-mono text-[10px] tracking-[0.08em] text-zinc-500 uppercase">
+            {mapping.routes.length} routes
+          </span>
+        </div>
+        <span className="mt-0.5 block font-mono text-[10px] tracking-[0.08em] text-zinc-500 uppercase">
           Priority fallback chain
         </span>
       </div>
 
       <div className="relative flex-1">
-        {/* rail */}
         <div
-          className="absolute top-3 left-[11px] w-0.5 bg-gradient-to-b from-emerald-500 to-zinc-800"
-          style={{ bottom: mapping.routes.length ? 44 : 12 }}
+          className="absolute top-2.5 left-[9px] w-px bg-gradient-to-b from-emerald-500 to-zinc-800"
+          style={{ bottom: mapping.routes.length ? 36 : 10 }}
         />
 
         <DndContext collisionDetection={closestCenter} onDragEnd={drag}>
@@ -142,16 +146,15 @@ function Column({
           </SortableContext>
         </DndContext>
 
-        {/* add binding node */}
-        <div className="relative flex gap-3.5">
-          <div className="z-[1] flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-zinc-700 bg-zinc-900/60 text-zinc-600">
-            <Plus size={12} />
+        <div className="relative flex gap-2.5">
+          <div className="z-[1] flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-zinc-700 bg-zinc-900/60 text-zinc-600">
+            <Plus size={10} />
           </div>
-          <div className="flex flex-1 gap-2">
-            <div className="relative flex-1">
+          <div className="flex min-w-0 flex-1 gap-2">
+            <div className="relative min-w-0 flex-1">
               <select
                 aria-label={`Add binding to ${mapping.alias}`}
-                className="w-full appearance-none rounded-[10px] border border-dashed border-zinc-700 bg-zinc-900/40 py-2.5 pr-9 pl-3 text-[13.5px] text-zinc-500 outline-none focus:border-indigo-500"
+                className="h-9 w-full appearance-none truncate rounded-lg border border-dashed border-zinc-700 bg-zinc-900/40 py-2 pr-8 pl-3 text-xs text-zinc-500 outline-none focus:border-indigo-500"
                 value={choice}
                 onChange={(e) => setChoice(e.target.value)}
               >
@@ -166,12 +169,12 @@ function Column({
                   ))}
               </select>
               <ChevronDown
-                size={15}
-                className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-zinc-600"
+                size={14}
+                className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-zinc-600"
               />
             </div>
             <button
-              className="rounded-[10px] border border-zinc-700 bg-zinc-800/80 px-4 text-[13.5px] font-semibold text-zinc-400 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-9 rounded-lg border border-zinc-700 bg-zinc-800/80 px-3 text-xs font-semibold text-zinc-400 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!choice}
               onClick={add}
             >
@@ -202,48 +205,46 @@ function SortableRoute({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className="relative mb-3.5 flex min-w-0 gap-3.5"
+      className="relative mb-2.5 flex min-w-0 gap-2.5"
     >
-      {/* node */}
       <div
-        className={`relative z-[1] flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 font-mono text-[11px] font-bold ${
+        className={`relative z-[1] flex h-5 w-5 shrink-0 items-center justify-center rounded-full border font-mono text-[10px] font-bold ${
           route.enabled ? 'border-emerald-500 text-emerald-300' : 'border-zinc-600 text-zinc-500'
         } bg-zinc-900`}
       >
         {index + 1}
       </div>
 
-      {/* card */}
       <div
-        className={`min-w-0 flex-1 rounded-[10px] border border-zinc-800 bg-zinc-950 px-3.5 py-3 ${!route.enabled ? 'opacity-70' : ''}`}
+        className={`min-w-0 flex-1 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 ${!route.enabled ? 'opacity-65' : ''}`}
       >
-        <div className="flex items-start justify-between gap-2.5">
-          <div className="flex min-w-0 gap-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 gap-1.5">
             <button
               aria-label="Drag to reorder"
-              className="mt-0.5 shrink-0 cursor-grab text-zinc-600 hover:text-zinc-400"
+              className="mt-px shrink-0 cursor-grab text-zinc-600 hover:text-zinc-400"
               {...attributes}
               {...listeners}
             >
-              <GripVertical size={15} />
+              <GripVertical size={14} />
             </button>
             <div className="min-w-0">
-              <div className="text-[14.5px] font-semibold text-zinc-100">
+              <div className="truncate text-sm font-semibold text-zinc-100">
                 {route.presetDisplayName}
               </div>
-              <div className="mt-0.5 truncate text-xs text-zinc-400">
+              <div className="mt-0.5 truncate text-[11px] text-zinc-400">
                 {route.cliproxyAccountLabel ??
                   route.cliproxyAccountPrefix ??
                   route.providerConnectionName}
               </div>
-              <div className="mt-0.5 truncate font-mono text-xs text-zinc-500">
+              <div className="truncate font-mono text-[11px] text-zinc-500">
                 {route.presetUpstreamModelId} ·{' '}
                 {route.apiFormat === 'anthropic_compatible' ? 'Anthropic' : 'OpenAI'}
               </div>
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2.5">
+          <div className="flex shrink-0 items-center gap-2">
             <button
               aria-checked={route.enabled}
               aria-label={`${route.enabled ? 'Disable' : 'Enable'} ${route.presetDisplayName}`}
@@ -264,7 +265,7 @@ function SortableRoute({
               title="Remove from mapping"
               type="button"
             >
-              <X size={16} />
+              <X size={15} />
             </button>
           </div>
         </div>
