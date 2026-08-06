@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { reasoningWireFormat } from '../src/routes/gateway/upstream-client.js';
+import {
+  reasoningWireFormat,
+  requestReasoningSignatures,
+} from '../src/routes/gateway/upstream-client.js';
 import type { ResolvedModel } from '../src/routes/gateway/schema.js';
 
 describe('reasoning codec fallback', () => {
@@ -10,5 +13,22 @@ describe('reasoning codec fallback', () => {
     expect(
       reasoningWireFormat({ baseUrl: 'https://example.com' } as ResolvedModel['connection']),
     ).toBe('reasoning_details');
+  });
+
+  it('ignores empty and foreign signatures during auto-detection', () => {
+    expect(
+      requestReasoningSignatures({
+        messages: [
+          {
+            role: 'assistant',
+            content: [
+              { type: 'thinking', thinking: 'a', signature: '' },
+              { type: 'thinking', thinking: 'b', signature: 'provider-signature' },
+              { type: 'thinking', thinking: 'c', signature: 'proxy:rs_valid' },
+            ],
+          },
+        ],
+      } as never),
+    ).toEqual(['proxy:rs_valid']);
   });
 });
