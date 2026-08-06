@@ -2,173 +2,30 @@
   "version": "7",
   "dialect": "postgresql",
   "entries": [
-    {
-      "idx": 0,
-      "version": "7",
-      "when": 1784601275688,
-      "tag": "0000_curly_odin",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1784605391552,
-      "tag": "0001_salty_ezekiel_stane",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1784607279483,
-      "tag": "0002_fast_shriek",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1784607530713,
-      "tag": "0003_reflective_otto_octavius",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1784616000000,
-      "tag": "0004_ambitious_usage",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1784623593763,
-      "tag": "0005_acoustic_sinister_six",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1784625915999,
-      "tag": "0006_remarkable_glorian",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1784627001930,
-      "tag": "0007_clear_nehzno",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1784627975606,
-      "tag": "0008_clean_spitfire",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1784630000000,
-      "tag": "0009_silly_storm",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1784635000000,
-      "tag": "0010_connection_centric",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "7",
-      "when": 1784640000000,
-      "tag": "0011_fix_multi_token_model_uniqueness",
-      "breakpoints": true
-    },
-    {
-      "idx": 12,
-      "version": "7",
-      "when": 1784645000000,
-      "tag": "0012_binding_based_routing",
-      "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "7",
-      "when": 1784717084710,
-      "tag": "0013_dazzling_scorpion",
-      "breakpoints": true
-    },
-    {
-      "idx": 14,
-      "version": "7",
-      "when": 1784781561630,
-      "tag": "0014_sleepy_silver_samurai",
-      "breakpoints": true
-    },
-    {
-      "idx": 15,
-      "version": "7",
-      "when": 1785340800000,
-      "tag": "0015_binding_cliproxy_account",
-      "breakpoints": true
-    },
-    {
-      "idx": 16,
-      "version": "7",
-      "when": 1785344400000,
-      "tag": "0016_cliproxy_account_cooldown",
-      "breakpoints": true
-    },
-    {
-      "idx": 17,
-      "version": "7",
-      "when": 1785348000000,
-      "tag": "0017_cliproxy_model_cooldown",
-      "breakpoints": true
-    },
-    {
-      "idx": 18,
-      "version": "7",
-      "when": 1785351600000,
-      "tag": "0018_managed_cliproxy_credentials",
-      "breakpoints": true
-    },
-    {
-      "idx": 19,
-      "version": "7",
-      "when": 1785355200000,
-      "tag": "0019_binding_model_cascade",
-      "breakpoints": true
-    },
-    {
-      "idx": 20,
-      "version": "7",
-      "when": 1785488400000,
-      "tag": "0020_model_fallback_cooldown",
-      "breakpoints": true
-    },
-    {
-      "idx": 21,
-      "version": "7",
-      "when": 1785949800000,
-      "tag": "0021_request_log_reasoning_details",
-      "breakpoints": true
-    },
-    {
-      "idx": 22,
-      "version": "7",
-      "when": 1785986500000,
-      "tag": "0022_binding_reasoning_codec",
-      "breakpoints": true
-    },
-    {
-      "idx": 23,
-      "version": "7",
-      "when": 1785988800000,
-      "tag": "0023_drop_binding_reasoning_codec",
-      "breakpoints": true
-    }
+    { "idx": 0, "version": "7", "when": 1784601275688, "tag": "0000_curly_odin", "breakpoints": true },
+    { "idx": 1, "version": "7", "when": 1784605391552, "tag": "0001_salty_ezekiel_stane", "breakpoints": true },
+    { "idx": 2, "version": "7", "when": 1784607279483, "tag": "0002_fast_shriek", "breakpoints": true },
+    { "idx": 3, "version": "7", "when": 1784607530713, "tag": "0003_reflective_otto_octavius", "breakpoints": true },
+    { "idx": 4, "version": "7", "when": 1784616000000, "tag": "0004_ambitious_usage", "breakpoints": true },
+    { "idx": 5, "version": "7", "when": 1784623593763, "tag": "0005_acoustic_sinister_six", "breakpoints": true },
+    { "idx": 6, "version": "7", "when": 1784625915999, "tag": "0006_remarkable_glorian", "breakpoints": true },
+    { "idx": 7, "version": "7", "when": 1784627001930, "tag": "0007_clear_nehzno", "breakpoints": true },
+    { "idx": 8, "version": "7", "when": 1784627975606, "tag": "0008_clean_spitfire", "breakpoints": true },
+    { "idx": 9, "version": "7", "when": 1784630000000, "tag": "0009_silly_storm", "breakpoints": true },
+    { "idx": 10, "version": "7", "when": 1784635000000, "tag": "0010_connection_centric", "breakpoints": true },
+    { "idx": 11, "version": "7", "when": 1784640000000, "tag": "0011_fix_multi_token_model_uniqueness", "breakpoints": true },
+    { "idx": 12, "version": "7", "when": 1784645000000, "tag": "0012_binding_based_routing", "breakpoints": true },
+    { "idx": 13, "version": "7", "when": 1784717084710, "tag": "0013_dazzling_scorpion", "breakpoints": true },
+    { "idx": 14, "version": "7", "when": 1784781561630, "tag": "0014_sleepy_silver_samurai", "breakpoints": true },
+    { "idx": 15, "version": "7", "when": 1785340800000, "tag": "0015_binding_cliproxy_account", "breakpoints": true },
+    { "idx": 16, "version": "7", "when": 1785344400000, "tag": "0016_cliproxy_account_cooldown", "breakpoints": true },
+    { "idx": 17, "version": "7", "when": 1785348000000, "tag": "0017_cliproxy_model_cooldown", "breakpoints": true },
+    { "idx": 18, "version": "7", "when": 1785351600000, "tag": "0018_managed_cliproxy_credentials", "breakpoints": true },
+    { "idx": 19, "version": "7", "when": 1785355200000, "tag": "0019_binding_model_cascade", "breakpoints": true },
+    { "idx": 20, "version": "7", "when": 1785488400000, "tag": "0020_model_fallback_cooldown", "breakpoints": true },
+    { "idx": 21, "version": "7", "when": 1785949800000, "tag": "0021_request_log_reasoning_details", "breakpoints": true },
+    { "idx": 22, "version": "7", "when": 1785986500000, "tag": "0022_binding_reasoning_codec", "breakpoints": true },
+    { "idx": 23, "version": "7", "when": 1785988800000, "tag": "0023_drop_binding_reasoning_codec", "breakpoints": true },
+    { "idx": 24, "version": "7", "when": 1786004400000, "tag": "0024_request_log_retention", "breakpoints": true }
   ]
 }

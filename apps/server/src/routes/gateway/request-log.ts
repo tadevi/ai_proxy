@@ -1,6 +1,8 @@
 import { sql } from 'drizzle-orm';
 import { modelUsageDaily, requestLogs } from '@gateway/db';
 import type { FastifyInstance } from 'fastify';
+import { logWarn } from '../../log.js';
+import { maybePruneRequestLogs } from '../../request-log-retention.js';
 
 export type LogInsert = typeof requestLogs.$inferInsert;
 
@@ -38,4 +40,10 @@ export async function writeLog(app: FastifyInstance, values: LogInsert) {
         },
       });
   });
+
+  void maybePruneRequestLogs(app)?.catch((error: unknown) =>
+    logWarn('request log cleanup failed', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+    }),
+  );
 }
