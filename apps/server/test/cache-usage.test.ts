@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractCacheInputTokens } from '../src/routes/gateway.js';
+import { extractCacheInputTokens } from '../src/routes/gateway/usage.js';
 
 describe('extractCacheInputTokens', () => {
   it('returns undefined when cache fields are absent', () => {
