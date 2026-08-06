@@ -284,9 +284,9 @@ export const modelUsageDaily = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    upstreamModelId: uuid('upstream_model_id')
+    bindingId: uuid('binding_id')
       .notNull()
-      .references(() => bindingRoutes.id, { onDelete: 'cascade' }),
+      .references(() => modelBindings.id, { onDelete: 'cascade' }),
     usageDate: date('usage_date').notNull(),
     requestCount: bigint('request_count', { mode: 'number' }).default(0).notNull(),
     inputTokens: bigint('input_tokens', { mode: 'number' }).default(0).notNull(),
@@ -299,8 +299,8 @@ export const modelUsageDaily = pgTable(
       .notNull(),
   },
   (t) => [
-    unique('model_usage_daily_unique').on(t.userId, t.upstreamModelId, t.usageDate),
-    index('model_usage_daily_user_model_idx').on(t.userId, t.upstreamModelId),
+    unique('model_usage_daily_unique').on(t.userId, t.bindingId, t.usageDate),
+    index('model_usage_daily_user_binding_idx').on(t.userId, t.bindingId),
   ],
 );
 
