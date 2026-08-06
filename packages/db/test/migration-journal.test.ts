@@ -56,6 +56,16 @@ describe('Drizzle migration metadata', () => {
     );
   });
 
+  it('allows credential-specific route labels while backfilling stable binding config', () => {
+    const sql = readMigration('0029_binding_owned_model_config');
+    const conflictCheck = sql.slice(0, sql.indexOf('ALTER TABLE model_bindings'));
+
+    expect(conflictCheck).not.toContain('left_route.display_name');
+    expect(sql).toContain('SELECT preset.display_name');
+    expect(sql).toContain('WHERE preset.id = binding.preset_id');
+    expect(sql).toContain('left_route.upstream_model_id IS DISTINCT FROM right_route.upstream_model_id');
+  });
+
   it('requires all binding-owned model config before application cutover', () => {
     const sql = readMigration('0030_require_binding_owned_model_config');
 
