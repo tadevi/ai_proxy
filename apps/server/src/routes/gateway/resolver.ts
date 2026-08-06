@@ -1,26 +1,85 @@
 import type { FastifyInstance } from 'fastify';
 import { and, asc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import {
+  bindingModelConfigs,
+  bindingTransformationRules,
   cliproxyModelStates,
   connectionTokens,
   mappingRoutes,
   mappings,
-  modelBindings,
-  modelPresets,
   providerConnections,
-  transformationRules,
-  upstreamModels,
+  runtimeBindingRoutes,
 } from '@gateway/db';
-import { requestContainsImages, type ResolvedModel, type ResolvedModelBase, type Attempt, type Model, type ProviderConnection } from './schema.js';
+import {
+  requestContainsImages,
+  type ResolvedModel,
+  type ResolvedModelBase,
+  type Attempt,
+  type Model,
+  type ProviderConnection,
+} from './schema.js';
 import type { Rule } from '@gateway/protocol';
 
 const tokenHealthOrder = [
-  sql`case ${upstreamModels.latestTestStatus} when 'healthy' then 0 when 'failed' then 2 else 1 end`,
-  asc(upstreamModels.createdAt),
-  asc(upstreamModels.id),
+  sql`case ${runtimeBindingRoutes.latestTestStatus} when 'healthy' then 0 when 'failed' then 2 else 1 end`,
+  asc(runtimeBindingRoutes.createdAt),
+  asc(runtimeBindingRoutes.id),
 ];
 
-export function toRule(row: typeof transformationRules.$inferSelect): Rule {
+const bindingConfigSelection = {
+  displayName: bindingModelConfigs.displayName,
+  upstreamModelId: bindingModelConfigs.upstreamModelId,
+  providerConnectionId: bindingModelConfigs.connectionId,
+  apiFormat: bindingModelConfigs.apiFormat,
+  providerBasePath: bindingModelConfigs.providerBasePath,
+  requestPathOverride: bindingModelConfigs.requestPathOverride,
+  contextLength: bindingModelConfigs.contextLength,
+  maxOutputTokens: bindingModelConfigs.maxOutputTokens,
+  supportsStreaming: bindingModelConfigs.supportsStreaming,
+  supportsTools: bindingModelConfigs.supportsTools,
+  supportsImages: bindingModelConfigs.supportsImages,
+  supportsReasoning: bindingModelConfigs.supportsReasoning,
+};
+
+type BindingConfig = {
+  displayName: string;
+  upstreamModelId: string;
+  providerConnectionId: string;
+  apiFormat: Model['apiFormat'];
+  providerBasePath: string;
+  requestPathOverride: string | null;
+  contextLength: number | null;
+  maxOutputTokens: number | null;
+  supportsStreaming: Model['supportsStreaming'];
+  supportsTools: Model['supportsTools'];
+  supportsImages: Model['supportsImages'];
+  supportsReasoning: Model['supportsReasoning'];
+};
+
+type RuntimeRoute = typeof runtimeBindingRoutes.$inferSelect;
+
+type RoutedModelRow = {
+  model: RuntimeRoute;
+  bindingConfig: BindingConfig;
+  connection: ProviderConnection;
+};
+
+function applyBindingConfig(row: RoutedModelRow): { model: Model; connection: ProviderConnection } {
+  return {
+    connection: row.connection,
+    model: {
+      ...row.model,
+      ...row.bindingConfig,
+    } as Model,
+  };
+}
+
+type RuleRow = Pick<
+  typeof bindingTransformationRules.$inferSelect,
+  'type' | 'enabled' | 'position' | 'configJson'
+>;
+
+export function toRule(row: RuleRow): Rule {
   return {
     type: row.type,
     enabled: row.enabled,
@@ -50,23 +109,35 @@ async function attachRules<T extends { resolved: ResolvedModelBase }>(
   app: FastifyInstance,
   entries: T[],
 ): Promise<Array<Omit<T, 'resolved'> & { resolved: ResolvedModel }>> {
-  const modelIds = [...new Set(entries.map((e) => e.resolved.model.id))];
-  const ruleRows = modelIds.length
+  const bindingIds = [
+    ...new Set(
+      entries
+        .map((entry) => entry.resolved.model.bindingId)
+        .filter((id): id is string => id != null),
+    ),
+  ];
+  const ruleRows = bindingIds.length
     ? await app.db
         .select()
-        .from(transformationRules)
-        .where(inArray(transformationRules.upstreamModelId, modelIds))
-        .orderBy(asc(transformationRules.position))
+        .from(bindingTransformationRules)
+        .where(inArray(bindingTransformationRules.bindingId, bindingIds))
+        .orderBy(asc(bindingTransformationRules.position))
     : [];
-  const rulesByModel = new Map<string, Rule[]>();
+  const rulesByBinding = new Map<string, Rule[]>();
   for (const row of ruleRows) {
-    const list = rulesByModel.get(row.upstreamModelId) ?? [];
+    if (!row.bindingId) continue;
+    const list = rulesByBinding.get(row.bindingId) ?? [];
     list.push(toRule(row));
-    rulesByModel.set(row.upstreamModelId, list);
+    rulesByBinding.set(row.bindingId, list);
   }
-  return entries.map((e) => ({
-    ...e,
-    resolved: { ...e.resolved, rules: rulesByModel.get(e.resolved.model.id) ?? [] },
+  return entries.map((entry) => ({
+    ...entry,
+    resolved: {
+      ...entry.resolved,
+      rules: entry.resolved.model.bindingId
+        ? (rulesByBinding.get(entry.resolved.model.bindingId) ?? [])
+        : [],
+    },
   }));
 }
 
@@ -76,7 +147,9 @@ export async function resolve(
   incoming: string,
   request: { messages: unknown[] },
 ): Promise<{ attempts: Attempt[]; skipped: object[] }> {
-  const hasImages = requestContainsImages(request as unknown as Parameters<typeof requestContainsImages>[0]);
+  const hasImages = requestContainsImages(
+    request as unknown as Parameters<typeof requestContainsImages>[0],
+  );
   const [mapping] = await app.db
     .select({ id: mappings.id })
     .from(mappings)
@@ -85,26 +158,29 @@ export async function resolve(
   let models: Array<{ resolved: ResolvedModelBase; position: number }>;
   if (mapping) {
     const rows = await app.db
-      .select({ model: upstreamModels, connection: providerConnections })
+      .select({
+        model: runtimeBindingRoutes,
+        bindingConfig: bindingConfigSelection,
+        connection: providerConnections,
+      })
       .from(mappingRoutes)
-      .innerJoin(modelBindings, eq(modelBindings.id, mappingRoutes.bindingId))
-      .innerJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
-      .innerJoin(upstreamModels, eq(upstreamModels.bindingId, modelBindings.id))
+      .innerJoin(bindingModelConfigs, eq(bindingModelConfigs.id, mappingRoutes.bindingId))
+      .innerJoin(runtimeBindingRoutes, eq(runtimeBindingRoutes.bindingId, bindingModelConfigs.id))
       .leftJoin(
         cliproxyModelStates,
         and(
-          eq(cliproxyModelStates.cliproxyAccountId, modelBindings.cliproxyAccountId),
-          eq(cliproxyModelStates.upstreamModelId, modelPresets.upstreamModelId),
+          eq(cliproxyModelStates.cliproxyAccountId, bindingModelConfigs.cliproxyAccountId),
+          eq(cliproxyModelStates.upstreamModelId, bindingModelConfigs.upstreamModelId),
         ),
       )
       .innerJoin(
         providerConnections,
-        eq(providerConnections.id, upstreamModels.providerConnectionId),
+        eq(providerConnections.id, bindingModelConfigs.connectionId),
       )
       .innerJoin(
         connectionTokens,
         and(
-          eq(connectionTokens.id, upstreamModels.tokenId),
+          eq(connectionTokens.id, runtimeBindingRoutes.tokenId),
           eq(connectionTokens.enabled, true),
           or(
             isNull(connectionTokens.cooldownUntil),
@@ -122,37 +198,40 @@ export async function resolve(
             lte(cliproxyModelStates.cooldownUntil, new Date()),
           ),
           or(
-            isNull(upstreamModels.fallbackCooldownUntil),
-            lte(upstreamModels.fallbackCooldownUntil, new Date()),
+            isNull(runtimeBindingRoutes.fallbackCooldownUntil),
+            lte(runtimeBindingRoutes.fallbackCooldownUntil, new Date()),
           ),
-          eq(upstreamModels.enabled, true),
+          eq(runtimeBindingRoutes.enabled, true),
           eq(providerConnections.enabled, true),
         ),
       )
       .orderBy(asc(mappingRoutes.position), ...tokenHealthOrder);
-    const resolved = await attachTokens(app, rows);
+    const resolved = await attachTokens(app, rows.map(applyBindingConfig));
     models = resolved.map((r, position) => ({ resolved: r, position }));
   } else {
     const rows = await app.db
-      .select({ model: upstreamModels, connection: providerConnections })
-      .from(upstreamModels)
-      .leftJoin(modelBindings, eq(modelBindings.id, upstreamModels.bindingId))
-      .leftJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
+      .select({
+        model: runtimeBindingRoutes,
+        bindingConfig: bindingConfigSelection,
+        connection: providerConnections,
+      })
+      .from(runtimeBindingRoutes)
+      .innerJoin(bindingModelConfigs, eq(bindingModelConfigs.id, runtimeBindingRoutes.bindingId))
       .leftJoin(
         cliproxyModelStates,
         and(
-          eq(cliproxyModelStates.cliproxyAccountId, modelBindings.cliproxyAccountId),
-          eq(cliproxyModelStates.upstreamModelId, modelPresets.upstreamModelId),
+          eq(cliproxyModelStates.cliproxyAccountId, bindingModelConfigs.cliproxyAccountId),
+          eq(cliproxyModelStates.upstreamModelId, bindingModelConfigs.upstreamModelId),
         ),
       )
       .innerJoin(
         providerConnections,
-        eq(providerConnections.id, upstreamModels.providerConnectionId),
+        eq(providerConnections.id, bindingModelConfigs.connectionId),
       )
       .innerJoin(
         connectionTokens,
         and(
-          eq(connectionTokens.id, upstreamModels.tokenId),
+          eq(connectionTokens.id, runtimeBindingRoutes.tokenId),
           eq(connectionTokens.enabled, true),
           or(
             isNull(connectionTokens.cooldownUntil),
@@ -162,23 +241,23 @@ export async function resolve(
       )
       .where(
         and(
-          eq(upstreamModels.userId, userId),
-          eq(upstreamModels.upstreamModelId, incoming),
+          eq(bindingModelConfigs.userId, userId),
+          eq(bindingModelConfigs.upstreamModelId, incoming),
           or(
             isNull(cliproxyModelStates.id),
             isNull(cliproxyModelStates.cooldownUntil),
             lte(cliproxyModelStates.cooldownUntil, new Date()),
           ),
           or(
-            isNull(upstreamModels.fallbackCooldownUntil),
-            lte(upstreamModels.fallbackCooldownUntil, new Date()),
+            isNull(runtimeBindingRoutes.fallbackCooldownUntil),
+            lte(runtimeBindingRoutes.fallbackCooldownUntil, new Date()),
           ),
-          eq(upstreamModels.enabled, true),
+          eq(runtimeBindingRoutes.enabled, true),
           eq(providerConnections.enabled, true),
         ),
       )
       .orderBy(...tokenHealthOrder);
-    const resolved = await attachTokens(app, rows);
+    const resolved = await attachTokens(app, rows.map(applyBindingConfig));
     models = resolved.map((r, position) => ({ resolved: r, position }));
   }
   const withRules = await attachRules(app, models);

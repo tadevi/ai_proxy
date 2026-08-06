@@ -1,10 +1,9 @@
 import { and, eq } from 'drizzle-orm';
 import {
+  bindingModelConfigs,
   cliproxyModelStates,
   connectionTokens,
-  modelBindings,
-  modelPresets,
-  upstreamModels,
+  runtimeBindingRoutes,
 } from '@gateway/db';
 import type { FastifyInstance } from 'fastify';
 import { logWarn } from '../../log.js';
@@ -18,7 +17,7 @@ export async function recordCombinationSuccess(
 ) {
   const now = new Date();
   await app.db
-    .update(upstreamModels)
+    .update(runtimeBindingRoutes)
     .set({
       latestTestStatus: 'healthy',
       latestTestAt: now,
@@ -27,7 +26,7 @@ export async function recordCombinationSuccess(
       fallbackCooldownUntil: null,
       updatedAt: now,
     })
-    .where(eq(upstreamModels.id, combination.id));
+    .where(eq(runtimeBindingRoutes.id, combination.id));
 
   if (combination.tokenId) {
     await app.db
@@ -50,7 +49,7 @@ export async function recordModelFailure(
   failure: UpstreamFailure,
 ) {
   await app.db
-    .update(upstreamModels)
+    .update(runtimeBindingRoutes)
     .set({
       latestTestStatus: 'failed',
       latestTestAt: new Date(),
@@ -62,7 +61,7 @@ export async function recordModelFailure(
       latestErrorAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(eq(upstreamModels.id, modelId));
+    .where(eq(runtimeBindingRoutes.id, modelId));
 }
 
 export async function placeTokenInCooldown(
@@ -113,24 +112,20 @@ export async function setModelFallbackCooldown(
 ) {
   const until = new Date(Date.now() + durationMs);
   await app.db
-    .update(upstreamModels)
+    .update(runtimeBindingRoutes)
     .set({ fallbackCooldownUntil: until, updatedAt: new Date() })
-    .where(eq(upstreamModels.id, modelId));
+    .where(eq(runtimeBindingRoutes.id, modelId));
 }
 
-async function cliproxyModelKey(
-  app: FastifyInstance,
-  model: Pick<Model, 'bindingId'>,
-) {
+async function cliproxyModelKey(app: FastifyInstance, model: Pick<Model, 'bindingId'>) {
   if (!model.bindingId) return undefined;
   const [key] = await app.db
     .select({
-      cliproxyAccountId: modelBindings.cliproxyAccountId,
-      upstreamModelId: modelPresets.upstreamModelId,
+      cliproxyAccountId: bindingModelConfigs.cliproxyAccountId,
+      upstreamModelId: bindingModelConfigs.upstreamModelId,
     })
-    .from(modelBindings)
-    .innerJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
-    .where(eq(modelBindings.id, model.bindingId))
+    .from(bindingModelConfigs)
+    .where(eq(bindingModelConfigs.id, model.bindingId))
     .limit(1);
   return key?.cliproxyAccountId ? key : undefined;
 }
