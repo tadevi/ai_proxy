@@ -51,6 +51,12 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     },
   );
 
+  app.get(
+    '/api/me',
+    { preHandler: (req, reply) => dashboardAuth(app, req, reply) },
+    async (req) => req.dashboardUser,
+  );
+
   app.post('/api/account/password', async (req, reply) => {
     const input = changePasswordSchema.parse(req.body);
     const [user] = await app.db
