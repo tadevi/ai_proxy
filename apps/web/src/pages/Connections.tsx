@@ -682,9 +682,9 @@ function BindPresetModal({
   });
   const allSelected = available.length > 0 && selected.size === available.length;
   const selectedPresets = presets.filter((preset) => selected.has(preset.id));
+  const isExternalConnection = !requiresCliproxyAccount && !cliproxyAccountId;
   const usesExternalOpenAI =
-    !requiresCliproxyAccount &&
-    !cliproxyAccountId &&
+    isExternalConnection &&
     selectedPresets.length > 0 &&
     selectedPresets.every(
       (preset) => (apiFormat || preset.apiFormat) === 'openai_compatible',
@@ -801,11 +801,12 @@ function BindPresetModal({
               <option value="anthropic_compatible">Anthropic compatible</option>
             </select>
           </label>
-          {usesExternalOpenAI && (
+          {isExternalConnection && (
             <label>
               <span className="label">Reasoning format</span>
               <select
                 className="input"
+                disabled={!usesExternalOpenAI}
                 onChange={(event) => setReasoningCodec(event.target.value as ReasoningCodec)}
                 value={reasoningCodec}
               >
@@ -814,7 +815,9 @@ function BindPresetModal({
                 <option value="reasoning_content">Reasoning content</option>
               </select>
               <span className="mt-1 block text-xs text-zinc-500">
-                Applies only to external API-key OpenAI-compatible bindings.
+                {usesExternalOpenAI
+                  ? 'Applies to the selected external OpenAI-compatible bindings.'
+                  : 'Select OpenAI-compatible presets or override the API format to enable this.'}
               </span>
             </label>
           )}
