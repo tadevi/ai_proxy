@@ -82,7 +82,6 @@ article.overflow-hidden.rounded-xl button[aria-expanded] > span {
   height: 0.55rem;
   border-right: 2px solid currentColor;
   border-bottom: 2px solid currentColor;
-  color: transparent;
   font-size: 0;
   transform: rotate(45deg);
   transition: transform 150ms ease;
