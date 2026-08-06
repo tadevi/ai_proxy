@@ -170,6 +170,40 @@ export async function getModel(app: FastifyInstance, userId: string, id: string)
   return model;
 }
 
+type StableBindingConfig = {
+  displayName: string;
+  upstreamModelId: string;
+  requestPathOverride?: string | null;
+  contextLength?: number | null;
+  maxOutputTokens: number | null;
+  supportsStreaming?: 'yes' | 'no' | 'unknown';
+  supportsTools?: 'yes' | 'no' | 'unknown';
+  supportsImages: 'yes' | 'no' | 'unknown';
+  supportsReasoning: 'yes' | 'no' | 'unknown';
+};
+
+async function writeStableBindingConfig(
+  app: FastifyInstance,
+  bindingId: string,
+  config: StableBindingConfig,
+) {
+  await app.db.execute(sql`
+    UPDATE model_bindings
+    SET
+      display_name = ${config.displayName},
+      upstream_model_id = ${config.upstreamModelId},
+      request_path_override = ${config.requestPathOverride ?? null},
+      context_length = ${config.contextLength ?? null},
+      max_output_tokens = ${config.maxOutputTokens},
+      supports_streaming = ${config.supportsStreaming ?? 'unknown'}::capability,
+      supports_tools = ${config.supportsTools ?? 'unknown'}::capability,
+      supports_images = ${config.supportsImages}::capability,
+      supports_reasoning = ${config.supportsReasoning}::capability,
+      updated_at = now()
+    WHERE id = ${bindingId}
+  `);
+}
+
 export async function createUpstreamModelsForToken(
   app: FastifyInstance,
   userId: string,
@@ -209,21 +243,30 @@ export async function createUpstreamModelsForToken(
       : [];
     if (binding.cliproxyAccountId && !cliproxyAccount) continue;
 
+    const resolvedModelId = cliproxyAccount
+      ? `${cliproxyAccount.prefix}/${preset.upstreamModelId}`
+      : preset.upstreamModelId;
+    await writeStableBindingConfig(app, binding.id, {
+      displayName: preset.displayName,
+      upstreamModelId: resolvedModelId,
+      maxOutputTokens: preset.maxOutputTokens,
+      supportsImages: preset.supportsImages,
+      supportsReasoning: preset.supportsReasoning,
+    });
+
     const displayName = `${preset.displayName} (${token.name} @ ${connection.displayName})`;
     try {
       await app.db.insert(bindingRoutes).values({
         userId,
         displayName,
-        upstreamModelId: cliproxyAccount
-          ? `${cliproxyAccount.prefix}/${preset.upstreamModelId}`
-          : preset.upstreamModelId,
+        upstreamModelId: resolvedModelId,
         providerConnectionId: connectionId,
         bindingId: binding.id,
         tokenId,
         apiFormat: binding.apiFormat,
         providerBasePath: binding.providerBasePath,
-        supportsImages: preset.supportsImages as 'yes' | 'no',
-        supportsReasoning: preset.supportsReasoning as 'yes' | 'no',
+        supportsImages: preset.supportsImages,
+        supportsReasoning: preset.supportsReasoning,
         maxOutputTokens: preset.maxOutputTokens,
       });
     } catch (error) {
@@ -259,6 +302,14 @@ export async function createUpstreamModelsForBinding(
   const resolvedModelId = cliproxyAccountPrefix
     ? `${cliproxyAccountPrefix}/${preset.upstreamModelId}`
     : preset.upstreamModelId;
+
+  await writeStableBindingConfig(app, bindingId, {
+    displayName: preset.displayName,
+    upstreamModelId: resolvedModelId,
+    maxOutputTokens: preset.maxOutputTokens,
+    supportsImages: preset.supportsImages as 'yes' | 'no' | 'unknown',
+    supportsReasoning: preset.supportsReasoning as 'yes' | 'no' | 'unknown',
+  });
 
   const tokens = await app.db
     .select({ id: connectionTokens.id, name: connectionTokens.name })
