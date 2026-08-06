@@ -19,7 +19,7 @@ CREATE TABLE model_usage_daily_by_binding (
   output_tokens bigint NOT NULL DEFAULT 0,
   cache_input_tokens bigint NOT NULL DEFAULT 0,
   cache_usage_reported_request_count bigint NOT NULL DEFAULT 0,
-  CONSTRAINT model_usage_daily_unique UNIQUE (user_id, binding_id, usage_date)
+  CONSTRAINT model_usage_daily_by_binding_unique UNIQUE (user_id, binding_id, usage_date)
 );
 
 INSERT INTO model_usage_daily_by_binding (
@@ -47,5 +47,7 @@ GROUP BY usage.user_id, route.binding_id, usage.usage_date;
 
 DROP TABLE model_usage_daily;
 ALTER TABLE model_usage_daily_by_binding RENAME TO model_usage_daily;
+ALTER TABLE model_usage_daily
+  RENAME CONSTRAINT model_usage_daily_by_binding_unique TO model_usage_daily_unique;
 CREATE INDEX model_usage_daily_user_binding_idx
   ON model_usage_daily (user_id, binding_id);
