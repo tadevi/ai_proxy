@@ -11,7 +11,14 @@ import {
   modelPresets,
   providerConnections,
 } from '@gateway/db';
-import { requestContainsImages, type ResolvedModel, type ResolvedModelBase, type Attempt, type Model, type ProviderConnection } from './schema.js';
+import {
+  requestContainsImages,
+  type ResolvedModel,
+  type ResolvedModelBase,
+  type Attempt,
+  type Model,
+  type ProviderConnection,
+} from './schema.js';
 import type { Rule } from '@gateway/protocol';
 
 const tokenHealthOrder = [
@@ -19,6 +26,52 @@ const tokenHealthOrder = [
   asc(bindingRoutes.createdAt),
   asc(bindingRoutes.id),
 ];
+
+const bindingConfigSelection = {
+  displayName: sql<string>`coalesce(${modelBindings}."display_name", ${bindingRoutes.displayName})`,
+  upstreamModelId: sql<string>`coalesce(${modelBindings}."upstream_model_id", ${bindingRoutes.upstreamModelId})`,
+  providerConnectionId: modelBindings.connectionId,
+  apiFormat: modelBindings.apiFormat,
+  providerBasePath: modelBindings.providerBasePath,
+  requestPathOverride: sql<string | null>`coalesce(${modelBindings}."request_path_override", ${bindingRoutes.requestPathOverride})`,
+  contextLength: sql<number | null>`coalesce(${modelBindings}."context_length", ${bindingRoutes.contextLength})`,
+  maxOutputTokens: sql<number | null>`coalesce(${modelBindings}."max_output_tokens", ${bindingRoutes.maxOutputTokens})`,
+  supportsStreaming: sql<Model['supportsStreaming']>`coalesce(${modelBindings}."supports_streaming", ${bindingRoutes.supportsStreaming})`,
+  supportsTools: sql<Model['supportsTools']>`coalesce(${modelBindings}."supports_tools", ${bindingRoutes.supportsTools})`,
+  supportsImages: sql<Model['supportsImages']>`coalesce(${modelBindings}."supports_images", ${bindingRoutes.supportsImages})`,
+  supportsReasoning: sql<Model['supportsReasoning']>`coalesce(${modelBindings}."supports_reasoning", ${bindingRoutes.supportsReasoning})`,
+};
+
+type BindingConfig = {
+  displayName: string;
+  upstreamModelId: string;
+  providerConnectionId: string;
+  apiFormat: Model['apiFormat'];
+  providerBasePath: string;
+  requestPathOverride: string | null;
+  contextLength: number | null;
+  maxOutputTokens: number | null;
+  supportsStreaming: Model['supportsStreaming'];
+  supportsTools: Model['supportsTools'];
+  supportsImages: Model['supportsImages'];
+  supportsReasoning: Model['supportsReasoning'];
+};
+
+type RoutedModelRow = {
+  model: Model;
+  bindingConfig: BindingConfig;
+  connection: ProviderConnection;
+};
+
+function applyBindingConfig(row: RoutedModelRow): { model: Model; connection: ProviderConnection } {
+  return {
+    connection: row.connection,
+    model: {
+      ...row.model,
+      ...row.bindingConfig,
+    },
+  };
+}
 
 type RuleRow = Pick<
   typeof bindingTransformationRules.$inferSelect,
@@ -93,7 +146,9 @@ export async function resolve(
   incoming: string,
   request: { messages: unknown[] },
 ): Promise<{ attempts: Attempt[]; skipped: object[] }> {
-  const hasImages = requestContainsImages(request as unknown as Parameters<typeof requestContainsImages>[0]);
+  const hasImages = requestContainsImages(
+    request as unknown as Parameters<typeof requestContainsImages>[0],
+  );
   const [mapping] = await app.db
     .select({ id: mappings.id })
     .from(mappings)
@@ -102,7 +157,11 @@ export async function resolve(
   let models: Array<{ resolved: ResolvedModelBase; position: number }>;
   if (mapping) {
     const rows = await app.db
-      .select({ model: bindingRoutes, connection: providerConnections })
+      .select({
+        model: bindingRoutes,
+        bindingConfig: bindingConfigSelection,
+        connection: providerConnections,
+      })
       .from(mappingRoutes)
       .innerJoin(modelBindings, eq(modelBindings.id, mappingRoutes.bindingId))
       .innerJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
@@ -116,7 +175,7 @@ export async function resolve(
       )
       .innerJoin(
         providerConnections,
-        eq(providerConnections.id, bindingRoutes.providerConnectionId),
+        eq(providerConnections.id, modelBindings.connectionId),
       )
       .innerJoin(
         connectionTokens,
@@ -147,13 +206,18 @@ export async function resolve(
         ),
       )
       .orderBy(asc(mappingRoutes.position), ...tokenHealthOrder);
-    const resolved = await attachTokens(app, rows);
+    const resolved = await attachTokens(app, rows.map(applyBindingConfig));
     models = resolved.map((r, position) => ({ resolved: r, position }));
   } else {
+    const resolvedUpstreamModelId = sql<string>`coalesce(${modelBindings}."upstream_model_id", ${bindingRoutes.upstreamModelId})`;
     const rows = await app.db
-      .select({ model: bindingRoutes, connection: providerConnections })
+      .select({
+        model: bindingRoutes,
+        bindingConfig: bindingConfigSelection,
+        connection: providerConnections,
+      })
       .from(bindingRoutes)
-      .leftJoin(modelBindings, eq(modelBindings.id, bindingRoutes.bindingId))
+      .innerJoin(modelBindings, eq(modelBindings.id, bindingRoutes.bindingId))
       .leftJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
       .leftJoin(
         cliproxyModelStates,
@@ -164,7 +228,7 @@ export async function resolve(
       )
       .innerJoin(
         providerConnections,
-        eq(providerConnections.id, bindingRoutes.providerConnectionId),
+        eq(providerConnections.id, modelBindings.connectionId),
       )
       .innerJoin(
         connectionTokens,
@@ -179,8 +243,8 @@ export async function resolve(
       )
       .where(
         and(
-          eq(bindingRoutes.userId, userId),
-          eq(bindingRoutes.upstreamModelId, incoming),
+          eq(modelBindings.userId, userId),
+          eq(resolvedUpstreamModelId, incoming),
           or(
             isNull(cliproxyModelStates.id),
             isNull(cliproxyModelStates.cooldownUntil),
@@ -195,7 +259,7 @@ export async function resolve(
         ),
       )
       .orderBy(...tokenHealthOrder);
-    const resolved = await attachTokens(app, rows);
+    const resolved = await attachTokens(app, rows.map(applyBindingConfig));
     models = resolved.map((r, position) => ({ resolved: r, position }));
   }
   const withRules = await attachRules(app, models);
