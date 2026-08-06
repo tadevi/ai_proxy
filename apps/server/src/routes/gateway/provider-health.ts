@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import {
   bindingRoutes,
   cliproxyModelStates,
@@ -122,7 +122,7 @@ async function cliproxyModelKey(app: FastifyInstance, model: Pick<Model, 'bindin
   const [key] = await app.db
     .select({
       cliproxyAccountId: modelBindings.cliproxyAccountId,
-      upstreamModelId: modelBindings.upstreamModelId,
+      upstreamModelId: sql<string>`${modelBindings}."upstream_model_id"`,
     })
     .from(modelBindings)
     .where(eq(modelBindings.id, model.bindingId))
