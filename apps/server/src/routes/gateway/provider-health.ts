@@ -4,7 +4,6 @@ import {
   cliproxyModelStates,
   connectionTokens,
   modelBindings,
-  modelPresets,
 } from '@gateway/db';
 import type { FastifyInstance } from 'fastify';
 import { logWarn } from '../../log.js';
@@ -118,18 +117,14 @@ export async function setModelFallbackCooldown(
     .where(eq(bindingRoutes.id, modelId));
 }
 
-async function cliproxyModelKey(
-  app: FastifyInstance,
-  model: Pick<Model, 'bindingId'>,
-) {
+async function cliproxyModelKey(app: FastifyInstance, model: Pick<Model, 'bindingId'>) {
   if (!model.bindingId) return undefined;
   const [key] = await app.db
     .select({
       cliproxyAccountId: modelBindings.cliproxyAccountId,
-      upstreamModelId: modelPresets.upstreamModelId,
+      upstreamModelId: modelBindings.upstreamModelId,
     })
     .from(modelBindings)
-    .innerJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
     .where(eq(modelBindings.id, model.bindingId))
     .limit(1);
   return key?.cliproxyAccountId ? key : undefined;
