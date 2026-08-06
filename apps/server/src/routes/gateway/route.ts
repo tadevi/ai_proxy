@@ -33,13 +33,12 @@ import { extractCacheInputTokens } from './usage.js';
 import { resolve, toRule } from './resolver.js';
 import { callModel } from './upstream-client.js';
 import {
-  recordModelSuccess,
+  recordCombinationSuccess,
   recordModelFailure,
   placeTokenInCooldown,
   disableToken,
   setModelFallbackCooldown,
   cooldownCliproxyModel,
-  clearCliproxyModelCooldown,
 } from './provider-health.js';
 
 export function requestSignal(request: IncomingMessage): AbortSignal {
@@ -142,16 +141,11 @@ export async function gatewayRoutes(app: FastifyInstance) {
         row.model.upstreamModelId,
         requestSignal(req.raw),
       );
-      await clearCliproxyModelCooldown(app, row.model);
-      await app.db
-        .update(upstreamModels)
-        .set({
-          latestTestStatus: 'healthy',
-          latestTestAt: new Date(),
-          latestError: null,
-          latestErrorAt: null,
-        })
-        .where(eq(upstreamModels.id, id));
+      await recordCombinationSuccess(app, {
+        id: row.model.id,
+        tokenId: token?.id ?? null,
+        bindingId: row.model.bindingId,
+      });
       return {
         ok: true,
         message: 'Authentication, model access, and response conversion succeeded.',
@@ -262,6 +256,11 @@ export async function gatewayRoutes(app: FastifyInstance) {
         row.model.upstreamModelId,
         requestSignal(req.raw),
       );
+      await recordCombinationSuccess(app, {
+        id: row.model.id,
+        tokenId: token?.id ?? null,
+        bindingId: row.model.bindingId,
+      });
       return { ok: true, response: result.body };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Playground request failed';
@@ -360,7 +359,11 @@ async function handleMessage(
               await new Promise<void>((resolve) => reply.raw.once('drain', resolve));
           }
           reply.raw.end();
-          await recordModelSuccess(app, attempt.resolved.model.id);
+          await recordCombinationSuccess(app, {
+            id: attempt.resolved.model.id,
+            tokenId: attempt.resolved.token?.id ?? null,
+            bindingId: attempt.resolved.model.bindingId,
+          });
           await writeLog(app, {
             userId,
             requestId,
@@ -406,7 +409,11 @@ async function handleMessage(
         content?.some(
           (block) => block.type === 'thinking' || block.type === 'redacted_thinking',
         ) ?? false;
-      await recordModelSuccess(app, attempt.resolved.model.id);
+      await recordCombinationSuccess(app, {
+        id: attempt.resolved.model.id,
+        tokenId: attempt.resolved.token?.id ?? null,
+        bindingId: attempt.resolved.model.bindingId,
+      });
       await writeLog(app, {
         userId,
         requestId,
