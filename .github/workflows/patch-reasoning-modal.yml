@@ -1,0 +1,93 @@
+name: Patch reasoning binding modal
+
+on:
+  push:
+    branches: [feature/external-reasoning-codec]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/external-reasoning-codec
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Patch modal
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('apps/web/src/pages/Connections.tsx')
+          s = path.read_text()
+
+          s = s.replace(
+              "import { Modal, useModalId } from '../Modal';\n",
+              "import { Modal, useModalId } from '../Modal';\n\ntype ReasoningCodec = 'auto' | 'reasoning_details' | 'reasoning_content';\n",
+          )
+
+          s = s.replace(
+              "      cliproxyAccountId,\n    }: {\n      connectionId: string;\n      presetIds: string[];\n      apiFormat?: string;\n      providerBasePath?: string;\n      cliproxyAccountId?: string;\n",
+              "      cliproxyAccountId,\n      reasoningCodec,\n    }: {\n      connectionId: string;\n      presetIds: string[];\n      apiFormat?: string;\n      providerBasePath?: string;\n      cliproxyAccountId?: string;\n      reasoningCodec: ReasoningCodec;\n",
+          )
+          s = s.replace(
+              "          presetIds,\n          ...(apiFormat ? { apiFormat } : {}),",
+              "          presetIds,\n          reasoningCodec,\n          ...(apiFormat ? { apiFormat } : {}),",
+          )
+
+          s = s.replace(
+              "          onBind={(presetIds, apiFormat, providerBasePath, cliproxyAccountId) =>\n            addBindings.mutate({",
+              "          onBind={(presetIds, apiFormat, providerBasePath, cliproxyAccountId, reasoningCodec) =>\n            addBindings.mutate({",
+          )
+          s = s.replace(
+              "              cliproxyAccountId,\n            })",
+              "              cliproxyAccountId,\n              reasoningCodec,\n            })",
+              1,
+          )
+
+          s = s.replace(
+              "    cliproxyAccountId?: string,\n  ) => void;",
+              "    cliproxyAccountId: string | undefined,\n    reasoningCodec: ReasoningCodec,\n  ) => void;",
+          )
+          s = s.replace(
+              "  const [cliproxyAccountId, setCliproxyAccountId] = useState('');\n",
+              "  const [cliproxyAccountId, setCliproxyAccountId] = useState('');\n  const [reasoningCodec, setReasoningCodec] = useState<ReasoningCodec>('auto');\n",
+          )
+          s = s.replace(
+              "  const allSelected = available.length > 0 && selected.size === available.length;\n",
+              "  const allSelected = available.length > 0 && selected.size === available.length;\n  const selectedPresets = presets.filter((preset) => selected.has(preset.id));\n  const usesExternalOpenAI =\n    !requiresCliproxyAccount &&\n    !cliproxyAccountId &&\n    selectedPresets.length > 0 &&\n    selectedPresets.every(\n      (preset) => (apiFormat || preset.apiFormat) === 'openai_compatible',\n    );\n",
+          )
+          s = s.replace(
+              "            onBind([...selected], apiFormat, providerBasePath, cliproxyAccountId || undefined);",
+              "            onBind(\n              [...selected],\n              apiFormat,\n              providerBasePath,\n              cliproxyAccountId || undefined,\n              usesExternalOpenAI ? reasoningCodec : 'auto',\n            );",
+          )
+          s = s.replace(
+              "                  setSelected(new Set());\n",
+              "                  setSelected(new Set());\n                  setReasoningCodec('auto');\n",
+              1,
+          )
+          s = s.replace(
+              "              onChange={(e) => setApiFormat(e.target.value)}\n",
+              "              onChange={(e) => {\n                setApiFormat(e.target.value);\n                setReasoningCodec('auto');\n              }}\n",
+          )
+
+          marker = """          <label>\n            <span className=\"label\">Base path (optional)</span>\n"""
+          dropdown = """          {usesExternalOpenAI && (\n            <label>\n              <span className=\"label\">Reasoning format</span>\n              <select\n                className=\"input\"\n                onChange={(event) => setReasoningCodec(event.target.value as ReasoningCodec)}\n                value={reasoningCodec}\n              >\n                <option value=\"auto\">Auto</option>\n                <option value=\"reasoning_details\">Reasoning details</option>\n                <option value=\"reasoning_content\">Reasoning content</option>\n              </select>\n              <span className=\"mt-1 block text-xs text-zinc-500\">\n                Applies only to external API-key OpenAI-compatible bindings.\n              </span>\n            </label>\n          )}\n"""
+          if dropdown not in s:
+              s = s.replace(marker, dropdown + marker)
+
+          path.write_text(s)
+          PY
+      - name: Remove temporary workflow and commit
+        run: |
+          rm .github/workflows/patch-reasoning-modal.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/web/src/pages/Connections.tsx .github/workflows/patch-reasoning-modal.yml
+          git commit -m "feat: configure reasoning codec in binding modal"
+          git push origin HEAD:feature/external-reasoning-codec
