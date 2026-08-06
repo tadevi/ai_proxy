@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { and, asc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import {
+  bindingRoutes,
   cliproxyModelStates,
   connectionTokens,
   mappingRoutes,
@@ -9,15 +10,14 @@ import {
   modelPresets,
   providerConnections,
   transformationRules,
-  upstreamModels,
 } from '@gateway/db';
 import { requestContainsImages, type ResolvedModel, type ResolvedModelBase, type Attempt, type Model, type ProviderConnection } from './schema.js';
 import type { Rule } from '@gateway/protocol';
 
 const tokenHealthOrder = [
-  sql`case ${upstreamModels.latestTestStatus} when 'healthy' then 0 when 'failed' then 2 else 1 end`,
-  asc(upstreamModels.createdAt),
-  asc(upstreamModels.id),
+  sql`case ${bindingRoutes.latestTestStatus} when 'healthy' then 0 when 'failed' then 2 else 1 end`,
+  asc(bindingRoutes.createdAt),
+  asc(bindingRoutes.id),
 ];
 
 export function toRule(row: typeof transformationRules.$inferSelect): Rule {
@@ -85,11 +85,11 @@ export async function resolve(
   let models: Array<{ resolved: ResolvedModelBase; position: number }>;
   if (mapping) {
     const rows = await app.db
-      .select({ model: upstreamModels, connection: providerConnections })
+      .select({ model: bindingRoutes, connection: providerConnections })
       .from(mappingRoutes)
       .innerJoin(modelBindings, eq(modelBindings.id, mappingRoutes.bindingId))
       .innerJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
-      .innerJoin(upstreamModels, eq(upstreamModels.bindingId, modelBindings.id))
+      .innerJoin(bindingRoutes, eq(bindingRoutes.bindingId, modelBindings.id))
       .leftJoin(
         cliproxyModelStates,
         and(
@@ -99,12 +99,12 @@ export async function resolve(
       )
       .innerJoin(
         providerConnections,
-        eq(providerConnections.id, upstreamModels.providerConnectionId),
+        eq(providerConnections.id, bindingRoutes.providerConnectionId),
       )
       .innerJoin(
         connectionTokens,
         and(
-          eq(connectionTokens.id, upstreamModels.tokenId),
+          eq(connectionTokens.id, bindingRoutes.tokenId),
           eq(connectionTokens.enabled, true),
           or(
             isNull(connectionTokens.cooldownUntil),
@@ -122,10 +122,10 @@ export async function resolve(
             lte(cliproxyModelStates.cooldownUntil, new Date()),
           ),
           or(
-            isNull(upstreamModels.fallbackCooldownUntil),
-            lte(upstreamModels.fallbackCooldownUntil, new Date()),
+            isNull(bindingRoutes.fallbackCooldownUntil),
+            lte(bindingRoutes.fallbackCooldownUntil, new Date()),
           ),
-          eq(upstreamModels.enabled, true),
+          eq(bindingRoutes.enabled, true),
           eq(providerConnections.enabled, true),
         ),
       )
@@ -134,9 +134,9 @@ export async function resolve(
     models = resolved.map((r, position) => ({ resolved: r, position }));
   } else {
     const rows = await app.db
-      .select({ model: upstreamModels, connection: providerConnections })
-      .from(upstreamModels)
-      .leftJoin(modelBindings, eq(modelBindings.id, upstreamModels.bindingId))
+      .select({ model: bindingRoutes, connection: providerConnections })
+      .from(bindingRoutes)
+      .leftJoin(modelBindings, eq(modelBindings.id, bindingRoutes.bindingId))
       .leftJoin(modelPresets, eq(modelPresets.id, modelBindings.presetId))
       .leftJoin(
         cliproxyModelStates,
@@ -147,12 +147,12 @@ export async function resolve(
       )
       .innerJoin(
         providerConnections,
-        eq(providerConnections.id, upstreamModels.providerConnectionId),
+        eq(providerConnections.id, bindingRoutes.providerConnectionId),
       )
       .innerJoin(
         connectionTokens,
         and(
-          eq(connectionTokens.id, upstreamModels.tokenId),
+          eq(connectionTokens.id, bindingRoutes.tokenId),
           eq(connectionTokens.enabled, true),
           or(
             isNull(connectionTokens.cooldownUntil),
@@ -162,18 +162,18 @@ export async function resolve(
       )
       .where(
         and(
-          eq(upstreamModels.userId, userId),
-          eq(upstreamModels.upstreamModelId, incoming),
+          eq(bindingRoutes.userId, userId),
+          eq(bindingRoutes.upstreamModelId, incoming),
           or(
             isNull(cliproxyModelStates.id),
             isNull(cliproxyModelStates.cooldownUntil),
             lte(cliproxyModelStates.cooldownUntil, new Date()),
           ),
           or(
-            isNull(upstreamModels.fallbackCooldownUntil),
-            lte(upstreamModels.fallbackCooldownUntil, new Date()),
+            isNull(bindingRoutes.fallbackCooldownUntil),
+            lte(bindingRoutes.fallbackCooldownUntil, new Date()),
           ),
-          eq(upstreamModels.enabled, true),
+          eq(bindingRoutes.enabled, true),
           eq(providerConnections.enabled, true),
         ),
       )
