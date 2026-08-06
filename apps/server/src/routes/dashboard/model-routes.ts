@@ -31,7 +31,7 @@ export async function registerModelRoutes(app: FastifyInstance) {
   app.get('/api/models/usage', async (req) =>
     app.db
       .select({
-        upstreamModelId: modelUsageDaily.upstreamModelId,
+        upstreamModelId: bindingRoutes.id,
         requestCount: sql<string>`coalesce(sum(${modelUsageDaily.requestCount}), 0)::text`,
         inputTokens: sql<string>`coalesce(sum(${modelUsageDaily.inputTokens}), 0)::text`,
         outputTokens: sql<string>`coalesce(sum(${modelUsageDaily.outputTokens}), 0)::text`,
@@ -39,8 +39,14 @@ export async function registerModelRoutes(app: FastifyInstance) {
         cacheInputTokensReportedRequests: sql<string>`coalesce(sum(${modelUsageDaily.cacheUsageReportedRequestCount}), 0)::text`,
       })
       .from(modelUsageDaily)
-      .where(eq(modelUsageDaily.userId, req.dashboardUser!.id))
-      .groupBy(modelUsageDaily.upstreamModelId),
+      .innerJoin(bindingRoutes, eq(bindingRoutes.bindingId, modelUsageDaily.bindingId))
+      .where(
+        and(
+          eq(modelUsageDaily.userId, req.dashboardUser!.id),
+          eq(bindingRoutes.userId, req.dashboardUser!.id),
+        ),
+      )
+      .groupBy(bindingRoutes.id),
   );
 
   app.get('/api/models', async (req) => getModelList(app, req.dashboardUser!.id));
