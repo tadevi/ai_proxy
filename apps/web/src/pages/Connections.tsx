@@ -12,6 +12,8 @@ import {
 import { latestErrorMessage } from '../format';
 import { Modal, useModalId } from '../Modal';
 
+type ReasoningCodec = 'auto' | 'reasoning_details' | 'reasoning_content';
+
 type ConnectionForm = {
   displayName: string;
   baseUrl: string;
@@ -159,12 +161,14 @@ export function Connections() {
       apiFormat,
       providerBasePath,
       cliproxyAccountId,
+      reasoningCodec,
     }: {
       connectionId: string;
       presetIds: string[];
       apiFormat?: string;
       providerBasePath?: string;
       cliproxyAccountId?: string;
+      reasoningCodec: ReasoningCodec;
     }) => {
       const result = await api<{
         bound: unknown[];
@@ -173,6 +177,7 @@ export function Connections() {
         method: 'POST',
         body: JSON.stringify({
           presetIds,
+          reasoningCodec,
           ...(apiFormat ? { apiFormat } : {}),
           ...(providerBasePath ? { providerBasePath } : {}),
           ...(cliproxyAccountId ? { cliproxyAccountId } : {}),
@@ -254,13 +259,14 @@ export function Connections() {
           error={addBindings.error?.message}
           isPending={addBindings.isPending}
           onCancel={() => setShowBindPreset(null)}
-          onBind={(presetIds, apiFormat, providerBasePath, cliproxyAccountId) =>
+          onBind={(presetIds, apiFormat, providerBasePath, cliproxyAccountId, reasoningCodec) =>
             addBindings.mutate({
               connectionId: showBindPreset,
               presetIds,
               apiFormat,
               providerBasePath,
               cliproxyAccountId,
+              reasoningCodec,
             })
           }
         />
@@ -649,7 +655,8 @@ function BindPresetModal({
     presetIds: string[],
     apiFormat: string,
     providerBasePath: string,
-    cliproxyAccountId?: string,
+    cliproxyAccountId: string | undefined,
+    reasoningCodec: ReasoningCodec,
   ) => void;
 }) {
   const titleId = useModalId();
@@ -657,6 +664,7 @@ function BindPresetModal({
   const [apiFormat, setApiFormat] = useState('');
   const [providerBasePath, setProviderBasePath] = useState('');
   const [cliproxyAccountId, setCliproxyAccountId] = useState('');
+  const [reasoningCodec, setReasoningCodec] = useState<ReasoningCodec>('auto');
   const selectedCliproxyAccount = cliproxyAccounts.find(
     (account) => account.id === cliproxyAccountId,
   );
@@ -673,6 +681,14 @@ function BindPresetModal({
     );
   });
   const allSelected = available.length > 0 && selected.size === available.length;
+  const selectedPresets = presets.filter((preset) => selected.has(preset.id));
+  const usesExternalOpenAI =
+    !requiresCliproxyAccount &&
+    !cliproxyAccountId &&
+    selectedPresets.length > 0 &&
+    selectedPresets.every(
+      (preset) => (apiFormat || preset.apiFormat) === 'openai_compatible',
+    );
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -695,7 +711,13 @@ function BindPresetModal({
         onSubmit={(event) => {
           event.preventDefault();
           if (selected.size)
-            onBind([...selected], apiFormat, providerBasePath, cliproxyAccountId || undefined);
+            onBind(
+              [...selected],
+              apiFormat,
+              providerBasePath,
+              cliproxyAccountId || undefined,
+              usesExternalOpenAI ? reasoningCodec : 'auto',
+            );
         }}
       >
           {(requiresCliproxyAccount || cliproxyAccounts.length > 0) && (
@@ -706,6 +728,7 @@ function BindPresetModal({
                 onChange={(event) => {
                   setCliproxyAccountId(event.target.value);
                   setSelected(new Set());
+                  setReasoningCodec('auto');
                 }}
                 value={cliproxyAccountId}
               >
@@ -767,7 +790,10 @@ function BindPresetModal({
             <span className="label">API format override (optional)</span>
             <select
               className="input"
-              onChange={(e) => setApiFormat(e.target.value)}
+              onChange={(e) => {
+                setApiFormat(e.target.value);
+                setReasoningCodec('auto');
+              }}
               value={apiFormat}
             >
               <option value="">No override — use each preset's own format</option>
@@ -775,6 +801,23 @@ function BindPresetModal({
               <option value="anthropic_compatible">Anthropic compatible</option>
             </select>
           </label>
+          {usesExternalOpenAI && (
+            <label>
+              <span className="label">Reasoning format</span>
+              <select
+                className="input"
+                onChange={(event) => setReasoningCodec(event.target.value as ReasoningCodec)}
+                value={reasoningCodec}
+              >
+                <option value="auto">Auto</option>
+                <option value="reasoning_details">Reasoning details</option>
+                <option value="reasoning_content">Reasoning content</option>
+              </select>
+              <span className="mt-1 block text-xs text-zinc-500">
+                Applies only to external API-key OpenAI-compatible bindings.
+              </span>
+            </label>
+          )}
           <label>
             <span className="label">Base path (optional)</span>
             <input
