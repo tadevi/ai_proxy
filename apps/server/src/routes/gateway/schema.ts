@@ -7,6 +7,7 @@ import {
   connectionTokens,
   upstreamModels,
   providerConnections,
+  type ReasoningCodec,
 } from '@gateway/db';
 
 export type Model = typeof upstreamModels.$inferSelect;
@@ -17,6 +18,7 @@ export type ResolvedModel = {
   model: Model;
   connection: ProviderConnection;
   token: ConnectionToken | null;
+  reasoningCodec: ReasoningCodec;
   rules: Rule[];
 };
 export type ResolvedModelBase = Omit<ResolvedModel, 'rules'>;
@@ -128,4 +130,3 @@ export function isImageCapabilityFailure(failure: UpstreamFailure) {
   const detail = JSON.stringify(failure.providerError ?? {}).toLowerCase();
   return detail.includes('image') && /(no endpoints?|not support|unsupported)/.test(detail);
 }
-
