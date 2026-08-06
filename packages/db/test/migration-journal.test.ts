@@ -54,6 +54,13 @@ describe('Drizzle migration metadata', () => {
     expect(sql.indexOf('INSERT INTO model_usage_daily_by_binding')).toBeLessThan(
       sql.indexOf('DROP TABLE model_usage_daily'),
     );
+    expect(sql).toContain('CONSTRAINT model_usage_daily_by_binding_unique UNIQUE');
+    expect(sql).toContain(
+      'RENAME CONSTRAINT model_usage_daily_by_binding_unique TO model_usage_daily_unique',
+    );
+    expect(sql.indexOf('DROP TABLE model_usage_daily')).toBeLessThan(
+      sql.indexOf('RENAME CONSTRAINT model_usage_daily_by_binding_unique'),
+    );
   });
 
   it('allows credential-specific route labels while backfilling stable binding config', () => {
