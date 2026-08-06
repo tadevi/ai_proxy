@@ -1,43 +1,34 @@
 import { describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { cliproxyModelStates, connectionTokens, upstreamModels } from '@gateway/db';
-import { recordModelSuccess } from '../src/routes/gateway/provider-health.js';
+import { recordCombinationSuccess } from '../src/routes/gateway/provider-health.js';
 
 type UpdateCall = { table: unknown; values: Record<string, unknown> };
 type DeleteCall = { table: unknown };
 
-function createApp(model: { id: string; tokenId: string | null; bindingId: string | null }) {
+function createApp() {
   const updates: UpdateCall[] = [];
   const deletes: DeleteCall[] = [];
   let selectCount = 0;
 
   const db = {
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: async () => {
-            selectCount += 1;
-            if (selectCount === 1) return [model];
-            return [
-              {
-                cliproxyAccountId: 'account-1',
-                upstreamModelId: 'claude-sonnet',
-              },
-            ];
-          },
-        }),
-        innerJoin: () => ({
-          where: () => ({
-            limit: async () => [
-              {
-                cliproxyAccountId: 'account-1',
-                upstreamModelId: 'claude-sonnet',
-              },
-            ],
+    select: () => {
+      selectCount += 1;
+      return {
+        from: () => ({
+          innerJoin: () => ({
+            where: () => ({
+              limit: async () => [
+                {
+                  cliproxyAccountId: 'account-1',
+                  upstreamModelId: 'claude-sonnet',
+                },
+              ],
+            }),
           }),
         }),
-      }),
-    }),
+      };
+    },
     update: (table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
         where: async () => {
@@ -56,18 +47,19 @@ function createApp(model: { id: string; tokenId: string | null; bindingId: strin
     app: { db } as unknown as FastifyInstance,
     updates,
     deletes,
+    getSelectCount: () => selectCount,
   };
 }
 
-describe('recordModelSuccess', () => {
-  it('clears model, token, and exact CLIProxy model health state', async () => {
-    const { app, updates, deletes } = createApp({
-      id: 'model-1',
-      tokenId: 'token-1',
-      bindingId: 'binding-1',
-    });
+describe('recordCombinationSuccess', () => {
+  it('clears the exact model, token, and CLIProxy binding snapshot', async () => {
+    const { app, updates, deletes, getSelectCount } = createApp();
 
-    await recordModelSuccess(app, 'model-1');
+    await recordCombinationSuccess(app, {
+      id: 'model-used-by-request',
+      tokenId: 'token-used-by-request',
+      bindingId: 'binding-used-by-request',
+    });
 
     expect(updates).toHaveLength(2);
     expect(updates[0]?.table).toBe(upstreamModels);
@@ -85,19 +77,21 @@ describe('recordModelSuccess', () => {
     });
     expect(updates[1]?.values).not.toHaveProperty('enabled');
     expect(deletes).toEqual([{ table: cliproxyModelStates }]);
+    expect(getSelectCount()).toBe(1);
   });
 
-  it('does not touch token or CLIProxy state when the model has neither', async () => {
-    const { app, updates, deletes } = createApp({
+  it('does not look up mutable model-token associations after success', async () => {
+    const { app, updates, deletes, getSelectCount } = createApp();
+
+    await recordCombinationSuccess(app, {
       id: 'model-2',
       tokenId: null,
       bindingId: null,
     });
 
-    await recordModelSuccess(app, 'model-2');
-
     expect(updates).toHaveLength(1);
     expect(updates[0]?.table).toBe(upstreamModels);
     expect(deletes).toHaveLength(0);
+    expect(getSelectCount()).toBe(0);
   });
 });
