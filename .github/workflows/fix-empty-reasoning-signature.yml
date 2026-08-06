@@ -1,0 +1,49 @@
+name: Fix empty reasoning signature
+on:
+  push:
+    branches:
+      - fix/auto-detect-reasoning-codec
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch and test
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('apps/server/src/routes/gateway/upstream-client.ts')
+          text = source.read_text()
+          text = text.replace(
+              'function requestReasoningSignatures(request: AnthropicRequest): string[] {',
+              'export function requestReasoningSignatures(request: AnthropicRequest): string[] {',
+          )
+          text = text.replace(
+              "        typeof record.signature === 'string'\n      ) {\n        signatures.push(record.signature);",
+              "        typeof record.signature === 'string' &&\n        record.signature.startsWith('proxy:rs_')\n      ) {\n        signatures.push(record.signature);",
+          )
+          source.write_text(text)
+
+          test = Path('apps/server/test/reasoning-codec-cache.test.ts')
+          content = test.read_text()
+          content = content.replace(
+              "import { reasoningWireFormat } from '../src/routes/gateway/upstream-client.js';",
+              "import {\n  reasoningWireFormat,\n  requestReasoningSignatures,\n} from '../src/routes/gateway/upstream-client.js';",
+          )
+          content = content.replace(
+              "});\n",
+              "\n  it('ignores empty and foreign signatures during auto-detection', () => {\n    expect(\n      requestReasoningSignatures({\n        messages: [\n          {\n            role: 'assistant',\n            content: [\n              { type: 'thinking', thinking: 'a', signature: '' },\n              { type: 'thinking', thinking: 'b', signature: 'provider-signature' },\n              { type: 'thinking', thinking: 'c', signature: 'proxy:rs_valid' },\n            ],\n          },\n        ],\n      } as never),\n    ).toEqual(['proxy:rs_valid']);\n  });\n});\n",
+              1,
+          )
+          test.write_text(content)
+          PY
+          rm .github/workflows/fix-empty-reasoning-signature.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: ignore empty reasoning signatures during detection'
+          git push
