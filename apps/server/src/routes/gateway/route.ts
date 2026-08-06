@@ -1,12 +1,12 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { IncomingMessage } from 'node:http';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import {
-  bindingRoutes,
+  bindingModelConfigs,
   bindingTransformationRules,
   connectionTokens,
-  modelBindings,
   providerConnections,
+  runtimeBindingRoutes,
 } from '@gateway/db';
 import { anthropicError } from '@gateway/shared';
 import {
@@ -45,18 +45,18 @@ import {
 } from './provider-health.js';
 
 const bindingConfigSelection = {
-  displayName: sql<string>`${modelBindings}."display_name"`,
-  upstreamModelId: sql<string>`${modelBindings}."upstream_model_id"`,
-  providerConnectionId: modelBindings.connectionId,
-  apiFormat: modelBindings.apiFormat,
-  providerBasePath: modelBindings.providerBasePath,
-  requestPathOverride: sql<string | null>`${modelBindings}."request_path_override"`,
-  contextLength: sql<number | null>`${modelBindings}."context_length"`,
-  maxOutputTokens: sql<number | null>`${modelBindings}."max_output_tokens"`,
-  supportsStreaming: sql<Model['supportsStreaming']>`${modelBindings}."supports_streaming"`,
-  supportsTools: sql<Model['supportsTools']>`${modelBindings}."supports_tools"`,
-  supportsImages: sql<Model['supportsImages']>`${modelBindings}."supports_images"`,
-  supportsReasoning: sql<Model['supportsReasoning']>`${modelBindings}."supports_reasoning"`,
+  displayName: bindingModelConfigs.displayName,
+  upstreamModelId: bindingModelConfigs.upstreamModelId,
+  providerConnectionId: bindingModelConfigs.connectionId,
+  apiFormat: bindingModelConfigs.apiFormat,
+  providerBasePath: bindingModelConfigs.providerBasePath,
+  requestPathOverride: bindingModelConfigs.requestPathOverride,
+  contextLength: bindingModelConfigs.contextLength,
+  maxOutputTokens: bindingModelConfigs.maxOutputTokens,
+  supportsStreaming: bindingModelConfigs.supportsStreaming,
+  supportsTools: bindingModelConfigs.supportsTools,
+  supportsImages: bindingModelConfigs.supportsImages,
+  supportsReasoning: bindingModelConfigs.supportsReasoning,
 };
 
 type BindingConfig = {
@@ -74,11 +74,13 @@ type BindingConfig = {
   supportsReasoning: Model['supportsReasoning'];
 };
 
+type RuntimeRoute = typeof runtimeBindingRoutes.$inferSelect;
+
 function applyBindingConfig(row: {
-  model: Model;
+  model: RuntimeRoute;
   bindingConfig: BindingConfig;
   connection: ProviderConnection;
-}) {
+}): { model: Model; connection: ProviderConnection } {
   return {
     model: { ...row.model, ...row.bindingConfig },
     connection: row.connection,
@@ -88,14 +90,17 @@ function applyBindingConfig(row: {
 async function loadDashboardModel(app: FastifyInstance, userId: string, id: string) {
   const [row] = await app.db
     .select({
-      model: bindingRoutes,
+      model: runtimeBindingRoutes,
       bindingConfig: bindingConfigSelection,
       connection: providerConnections,
     })
-    .from(bindingRoutes)
-    .innerJoin(modelBindings, eq(modelBindings.id, bindingRoutes.bindingId))
-    .innerJoin(providerConnections, eq(providerConnections.id, modelBindings.connectionId))
-    .where(and(eq(bindingRoutes.id, id), eq(modelBindings.userId, userId)))
+    .from(runtimeBindingRoutes)
+    .innerJoin(bindingModelConfigs, eq(bindingModelConfigs.id, runtimeBindingRoutes.bindingId))
+    .innerJoin(
+      providerConnections,
+      eq(providerConnections.id, bindingModelConfigs.connectionId),
+    )
+    .where(and(eq(runtimeBindingRoutes.id, id), eq(bindingModelConfigs.userId, userId)))
     .limit(1);
   return row ? applyBindingConfig(row) : undefined;
 }
@@ -113,16 +118,22 @@ export async function gatewayRoutes(app: FastifyInstance) {
     async (req) => {
       const models = await app.db
         .selectDistinct({
-          id: sql<string>`${modelBindings}."upstream_model_id"`,
-          createdAt: modelBindings.createdAt,
+          id: bindingModelConfigs.upstreamModelId,
+          createdAt: bindingModelConfigs.createdAt,
         })
-        .from(modelBindings)
-        .innerJoin(bindingRoutes, eq(bindingRoutes.bindingId, modelBindings.id))
-        .innerJoin(providerConnections, eq(providerConnections.id, modelBindings.connectionId))
+        .from(bindingModelConfigs)
+        .innerJoin(
+          runtimeBindingRoutes,
+          eq(runtimeBindingRoutes.bindingId, bindingModelConfigs.id),
+        )
+        .innerJoin(
+          providerConnections,
+          eq(providerConnections.id, bindingModelConfigs.connectionId),
+        )
         .where(
           and(
-            eq(modelBindings.userId, req.gatewayUserId!),
-            eq(bindingRoutes.enabled, true),
+            eq(bindingModelConfigs.userId, req.gatewayUserId!),
+            eq(runtimeBindingRoutes.enabled, true),
             eq(providerConnections.enabled, true),
           ),
         );
@@ -212,14 +223,14 @@ export async function gatewayRoutes(app: FastifyInstance) {
       if (error instanceof UpstreamFailure && isCliproxyCredentialCooldown(error))
         await cooldownCliproxyModel(app, row.model, error);
       await app.db
-        .update(bindingRoutes)
+        .update(runtimeBindingRoutes)
         .set({
           latestTestStatus: 'failed',
           latestTestAt: new Date(),
           latestError,
           latestErrorAt: new Date(),
         })
-        .where(eq(bindingRoutes.id, id));
+        .where(eq(runtimeBindingRoutes.id, id));
       return reply.code(502).send({ ok: false, message });
     }
   });
