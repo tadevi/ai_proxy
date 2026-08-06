@@ -27,6 +27,7 @@
     { "idx": 22, "version": "7", "when": 1785986500000, "tag": "0022_binding_reasoning_codec", "breakpoints": true },
     { "idx": 23, "version": "7", "when": 1785988800000, "tag": "0023_drop_binding_reasoning_codec", "breakpoints": true },
     { "idx": 24, "version": "7", "when": 1786004400000, "tag": "0024_request_log_retention", "breakpoints": true },
-    { "idx": 25, "version": "7", "when": 1786036200000, "tag": "0025_rename_upstream_models_to_binding_routes", "breakpoints": true }
+    { "idx": 25, "version": "7", "when": 1786036200000, "tag": "0025_rename_upstream_models_to_binding_routes", "breakpoints": true },
+    { "idx": 26, "version": "7", "when": 1786039200000, "tag": "0026_binding_owned_transformation_rules", "breakpoints": true }
   ]
 }
