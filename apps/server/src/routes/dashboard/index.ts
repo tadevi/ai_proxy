@@ -312,11 +312,13 @@ import { registerAuthRoutes } from './auth-routes.js';
 import { registerConnectionRoutes } from './connection-routes.js';
 import { registerModelRoutes } from './model-routes.js';
 import { registerLogsRoutes } from './logs-routes.js';
+import { registerKeyRoutes } from './key-routes.js';
 
 export async function dashboardRoutes(app: FastifyInstance) {
   await registerAuthRoutes(app);
   await registerConnectionRoutes(app);
   await registerModelRoutes(app);
+  await registerKeyRoutes(app);
   await registerLogsRoutes(app);
 }
 
