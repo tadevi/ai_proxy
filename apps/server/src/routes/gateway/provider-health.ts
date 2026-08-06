@@ -1,9 +1,9 @@
 import { and, eq } from 'drizzle-orm';
 import {
   bindingModelConfigs,
-  bindingRoutes,
   cliproxyModelStates,
   connectionTokens,
+  runtimeBindingRoutes,
 } from '@gateway/db';
 import type { FastifyInstance } from 'fastify';
 import { logWarn } from '../../log.js';
@@ -17,7 +17,7 @@ export async function recordCombinationSuccess(
 ) {
   const now = new Date();
   await app.db
-    .update(bindingRoutes)
+    .update(runtimeBindingRoutes)
     .set({
       latestTestStatus: 'healthy',
       latestTestAt: now,
@@ -26,7 +26,7 @@ export async function recordCombinationSuccess(
       fallbackCooldownUntil: null,
       updatedAt: now,
     })
-    .where(eq(bindingRoutes.id, combination.id));
+    .where(eq(runtimeBindingRoutes.id, combination.id));
 
   if (combination.tokenId) {
     await app.db
@@ -49,7 +49,7 @@ export async function recordModelFailure(
   failure: UpstreamFailure,
 ) {
   await app.db
-    .update(bindingRoutes)
+    .update(runtimeBindingRoutes)
     .set({
       latestTestStatus: 'failed',
       latestTestAt: new Date(),
@@ -61,7 +61,7 @@ export async function recordModelFailure(
       latestErrorAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(eq(bindingRoutes.id, modelId));
+    .where(eq(runtimeBindingRoutes.id, modelId));
 }
 
 export async function placeTokenInCooldown(
@@ -112,9 +112,9 @@ export async function setModelFallbackCooldown(
 ) {
   const until = new Date(Date.now() + durationMs);
   await app.db
-    .update(bindingRoutes)
+    .update(runtimeBindingRoutes)
     .set({ fallbackCooldownUntil: until, updatedAt: new Date() })
-    .where(eq(bindingRoutes.id, modelId));
+    .where(eq(runtimeBindingRoutes.id, modelId));
 }
 
 async function cliproxyModelKey(app: FastifyInstance, model: Pick<Model, 'bindingId'>) {
