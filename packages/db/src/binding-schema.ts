@@ -1,7 +1,6 @@
 import { boolean, index, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import {
   apiFormat,
-  bindingRoutes,
   capability,
   cliproxyAccounts,
   modelBindings,
@@ -9,6 +8,7 @@ import {
   providerConnections,
   users,
 } from './schema.js';
+import { runtimeBindingRoutes } from './runtime-schema.js';
 
 /**
  * Typed binding-owned view of model_bindings used during the staged migration.
@@ -62,7 +62,7 @@ export const bindingTransformationRules = pgTable(
     bindingId: uuid('binding_id').references(() => modelBindings.id, { onDelete: 'cascade' }),
     upstreamModelId: uuid('upstream_model_id')
       .notNull()
-      .references(() => bindingRoutes.id, { onDelete: 'cascade' }),
+      .references(() => runtimeBindingRoutes.id, { onDelete: 'cascade' }),
     type: text('type').notNull(),
     position: integer('position').notNull(),
     enabled: boolean('enabled').default(true).notNull(),
