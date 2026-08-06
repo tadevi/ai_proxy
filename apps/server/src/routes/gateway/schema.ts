@@ -4,12 +4,13 @@ import {
   normalizeThinking,
 } from '@gateway/protocol';
 import {
+  bindingRoutes,
   connectionTokens,
-  upstreamModels,
   providerConnections,
 } from '@gateway/db';
 
-export type Model = typeof upstreamModels.$inferSelect;
+export type BindingRoute = typeof bindingRoutes.$inferSelect;
+export type Model = BindingRoute;
 export type ProviderConnection = typeof providerConnections.$inferSelect;
 export type ConnectionToken = typeof connectionTokens.$inferSelect;
 
