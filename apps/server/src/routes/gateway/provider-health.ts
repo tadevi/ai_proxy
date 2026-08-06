@@ -1,9 +1,9 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
+  bindingModelConfigs,
   bindingRoutes,
   cliproxyModelStates,
   connectionTokens,
-  modelBindings,
 } from '@gateway/db';
 import type { FastifyInstance } from 'fastify';
 import { logWarn } from '../../log.js';
@@ -121,11 +121,11 @@ async function cliproxyModelKey(app: FastifyInstance, model: Pick<Model, 'bindin
   if (!model.bindingId) return undefined;
   const [key] = await app.db
     .select({
-      cliproxyAccountId: modelBindings.cliproxyAccountId,
-      upstreamModelId: sql<string>`${modelBindings}."upstream_model_id"`,
+      cliproxyAccountId: bindingModelConfigs.cliproxyAccountId,
+      upstreamModelId: bindingModelConfigs.upstreamModelId,
     })
-    .from(modelBindings)
-    .where(eq(modelBindings.id, model.bindingId))
+    .from(bindingModelConfigs)
+    .where(eq(bindingModelConfigs.id, model.bindingId))
     .limit(1);
   return key?.cliproxyAccountId ? key : undefined;
 }
