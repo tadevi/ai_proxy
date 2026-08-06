@@ -18,7 +18,7 @@ export type ResolvedModel = {
   model: Model;
   connection: ProviderConnection;
   token: ConnectionToken | null;
-  reasoningCodec: ReasoningCodec;
+  reasoningCodec?: ReasoningCodec;
   rules: Rule[];
 };
 export type ResolvedModelBase = Omit<ResolvedModel, 'rules'>;
