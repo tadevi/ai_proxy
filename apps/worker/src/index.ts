@@ -1,4 +1,5 @@
 import { checkDatabase, type WorkerDbEnv } from './db.js';
+import { handleDashboardApiRequest } from './dashboard-api.js';
 import { handleDashboardAuthRequest } from './dashboard-auth.js';
 import { handleGatewayRequest } from './gateway.js';
 
@@ -60,6 +61,9 @@ export default {
     const dashboardAuthResponse = await handleDashboardAuthRequest(request, env);
     if (dashboardAuthResponse) return dashboardAuthResponse;
 
+    const dashboardApiResponse = await handleDashboardApiRequest(request, env);
+    if (dashboardApiResponse) return dashboardApiResponse;
+
     const gatewayResponse = await handleGatewayRequest(request, env);
     if (gatewayResponse) return gatewayResponse;
 
@@ -74,7 +78,7 @@ export default {
       return json(
         {
           error: 'worker_api_not_ported',
-          message: 'Cloudflare Worker API routes are not ported yet.',
+          message: 'Cloudflare Worker API route is not ported yet.',
         },
         501,
       );
