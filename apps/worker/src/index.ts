@@ -9,6 +9,7 @@ import { handleDashboardWriteRequest } from './dashboard-write.js';
 import { handleGatewayMessageRequest } from './gateway-messages.js';
 import { handleGatewayParityRequest, type GatewayParityEnv } from './gateway-parity.js';
 import { handleGatewayRequest } from './gateway.js';
+import { handlePlaygroundDirectRequest } from './playground-direct.js';
 
 interface Env extends GatewayParityEnv {
   ASSETS: {
@@ -75,6 +76,9 @@ export default {
 
     const dashboardWriteResponse = await handleDashboardWriteRequest(request, env);
     if (dashboardWriteResponse) return dashboardWriteResponse;
+
+    const playgroundResponse = await handlePlaygroundDirectRequest(request, env);
+    if (playgroundResponse) return playgroundResponse;
 
     const gatewayParityResponse = await handleGatewayParityRequest(request, env);
     if (gatewayParityResponse) return gatewayParityResponse;
