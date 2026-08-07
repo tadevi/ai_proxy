@@ -1,4 +1,5 @@
 import { checkDatabase, type WorkerDbEnv } from './db.js';
+import { handleDashboardAuthRequest } from './dashboard-auth.js';
 import { handleGatewayRequest } from './gateway.js';
 
 interface Env extends WorkerDbEnv {
@@ -55,6 +56,9 @@ export default {
         );
       }
     }
+
+    const dashboardAuthResponse = await handleDashboardAuthRequest(request, env);
+    if (dashboardAuthResponse) return dashboardAuthResponse;
 
     const gatewayResponse = await handleGatewayRequest(request, env);
     if (gatewayResponse) return gatewayResponse;
