@@ -1,9 +1,12 @@
-import { checkDatabase, type WorkerDbEnv } from './db.js';
+import { checkDatabase } from './db.js';
 import { handleDashboardApiRequest } from './dashboard-api.js';
 import { handleDashboardAuthRequest } from './dashboard-auth.js';
+import { handleConnectionListRequest } from './dashboard-connection-list.js';
+import { handleTokenDeleteRequest } from './dashboard-token-delete.js';
+import { handleDashboardWriteRequest, type DashboardWriteEnv } from './dashboard-write.js';
 import { handleGatewayRequest } from './gateway.js';
 
-interface Env extends WorkerDbEnv {
+interface Env extends DashboardWriteEnv {
   ASSETS: {
     fetch(request: Request): Promise<Response>;
   };
@@ -60,6 +63,15 @@ export default {
 
     const dashboardAuthResponse = await handleDashboardAuthRequest(request, env);
     if (dashboardAuthResponse) return dashboardAuthResponse;
+
+    const connectionListResponse = await handleConnectionListRequest(request, env);
+    if (connectionListResponse) return connectionListResponse;
+
+    const tokenDeleteResponse = await handleTokenDeleteRequest(request, env);
+    if (tokenDeleteResponse) return tokenDeleteResponse;
+
+    const dashboardWriteResponse = await handleDashboardWriteRequest(request, env);
+    if (dashboardWriteResponse) return dashboardWriteResponse;
 
     const dashboardApiResponse = await handleDashboardApiRequest(request, env);
     if (dashboardApiResponse) return dashboardApiResponse;
