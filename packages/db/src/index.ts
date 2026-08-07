@@ -16,6 +16,13 @@ export function createDb(url: string, ssl?: pg.PoolConfig['ssl']) {
   };
 }
 
+export function createDbClient(url: string, ssl?: pg.ConnectionConfig['ssl']) {
+  return new pg.Client({
+    connectionString: ssl ? withoutSslUrlParameters(url) : url,
+    ...(ssl ? { ssl } : {}),
+  });
+}
+
 function withoutSslUrlParameters(value: string) {
   const url = new URL(value);
   for (const parameter of [
