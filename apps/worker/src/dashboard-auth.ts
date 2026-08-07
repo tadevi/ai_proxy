@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import bcrypt from '../../server/node_modules/bcryptjs/index.js';
-import { credentialsSchema } from '../../../packages/shared/src/index.js';
+import { changePasswordSchema, credentialsSchema } from '../../../packages/shared/src/index.js';
 import { createDbClient } from '../../../packages/db/src/index.js';
 import type { WorkerDbEnv } from './db.js';
 
@@ -148,6 +148,36 @@ export async function handleDashboardAuthRequest(
         await client.query('DELETE FROM sessions WHERE token_hash = $1', [hashSecret(token)]);
       });
     }
+    return json({ ok: true }, 200, { 'set-cookie': clearSessionCookie() });
+  }
+
+  if (url.pathname === '/api/account/password') {
+    if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, { allow: 'POST' });
+    const user = await currentUser(request, env);
+    if (!user) return json({ error: 'Authentication required' }, 401);
+
+    const parsed = changePasswordSchema.safeParse(await readJson(request));
+    if (!parsed.success) {
+      return json({ error: parsed.error.issues[0]?.message ?? 'Invalid password' }, 400);
+    }
+
+    const passwordHash = await withClient(env, async (client) => {
+      const result = await client.query<{ password_hash: string }>(
+        'SELECT password_hash FROM users WHERE id = $1 LIMIT 1',
+        [user.id],
+      );
+      return result.rows[0]?.password_hash;
+    });
+    if (!passwordHash || !(await bcrypt.compare(parsed.data.currentPassword, passwordHash))) {
+      return json({ error: 'Current password is incorrect' }, 401);
+    }
+
+    const nextHash = await bcrypt.hash(parsed.data.newPassword, 12);
+    const token = cookieValue(request, sessionCookie);
+    await withClient(env, async (client) => {
+      await client.query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [nextHash, user.id]);
+      if (token) await client.query('DELETE FROM sessions WHERE token_hash = $1', [hashSecret(token)]);
+    });
     return json({ ok: true }, 200, { 'set-cookie': clearSessionCookie() });
   }
 
