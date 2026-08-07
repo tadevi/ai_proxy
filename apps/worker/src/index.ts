@@ -3,12 +3,14 @@ import { handleDashboardApiRequest } from './dashboard-api.js';
 import { handleDashboardAuthRequest } from './dashboard-auth.js';
 import { handleConnectionListRequest } from './dashboard-connection-list.js';
 import { handleDashboardLogsRequest } from './dashboard-logs.js';
+import { handleDashboardParityRequest } from './dashboard-parity.js';
 import { handleTokenDeleteRequest } from './dashboard-token-delete.js';
 import { handleDashboardWriteRequest } from './dashboard-write.js';
-import { handleGatewayMessageRequest, type GatewayMessageEnv } from './gateway-messages.js';
+import { handleGatewayMessageRequest } from './gateway-messages.js';
+import { handleGatewayParityRequest, type GatewayParityEnv } from './gateway-parity.js';
 import { handleGatewayRequest } from './gateway.js';
 
-interface Env extends GatewayMessageEnv {
+interface Env extends GatewayParityEnv {
   ASSETS: {
     fetch(request: Request): Promise<Response>;
   };
@@ -52,19 +54,15 @@ export default {
           ...diagnostics,
         };
         console.error('Worker database health check failed', details);
-        return json(
-          {
-            ok: false,
-            error: 'database_connection_failed',
-            ...details,
-          },
-          503,
-        );
+        return json({ ok: false, error: 'database_connection_failed', ...details }, 503);
       }
     }
 
     const dashboardAuthResponse = await handleDashboardAuthRequest(request, env);
     if (dashboardAuthResponse) return dashboardAuthResponse;
+
+    const dashboardParityResponse = await handleDashboardParityRequest(request, env);
+    if (dashboardParityResponse) return dashboardParityResponse;
 
     const dashboardLogsResponse = await handleDashboardLogsRequest(request, env);
     if (dashboardLogsResponse) return dashboardLogsResponse;
@@ -77,6 +75,9 @@ export default {
 
     const dashboardWriteResponse = await handleDashboardWriteRequest(request, env);
     if (dashboardWriteResponse) return dashboardWriteResponse;
+
+    const gatewayParityResponse = await handleGatewayParityRequest(request, env);
+    if (gatewayParityResponse) return gatewayParityResponse;
 
     const gatewayMessageResponse = await handleGatewayMessageRequest(request, env);
     if (gatewayMessageResponse) return gatewayMessageResponse;
@@ -95,13 +96,7 @@ export default {
       url.pathname === '/anthropic' ||
       url.pathname.startsWith('/anthropic/')
     ) {
-      return json(
-        {
-          error: 'worker_api_not_ported',
-          message: 'Cloudflare Worker API route is not ported yet.',
-        },
-        501,
-      );
+      return json({ error: 'worker_api_not_ported', message: 'Cloudflare Worker API route is not ported yet.' }, 501);
     }
 
     return env.ASSETS.fetch(request);
