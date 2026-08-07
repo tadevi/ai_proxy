@@ -1,4 +1,6 @@
-interface Env {
+import { checkDatabase, type WorkerDbEnv } from './db.js';
+
+interface Env extends WorkerDbEnv {
   ASSETS: {
     fetch(request: Request): Promise<Response>;
   };
@@ -16,6 +18,23 @@ export default {
 
     if (url.pathname === '/__health' || url.pathname === '/health') {
       return json({ runtime: 'cloudflare-worker', status: 'ok' });
+    }
+
+    if (url.pathname === '/__db-health') {
+      try {
+        const result = await checkDatabase(env);
+        return json(result, result.status);
+      } catch (error) {
+        console.error('Worker database health check failed', error);
+        return json(
+          {
+            ok: false,
+            error: 'database_connection_failed',
+            message: error instanceof Error ? error.message : 'Unknown database error',
+          },
+          503,
+        );
+      }
     }
 
     if (
