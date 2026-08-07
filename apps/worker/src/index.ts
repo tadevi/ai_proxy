@@ -1,4 +1,5 @@
 import { checkDatabase, type WorkerDbEnv } from './db.js';
+import { handleGatewayRequest } from './gateway.js';
 
 interface Env extends WorkerDbEnv {
   ASSETS: {
@@ -54,6 +55,9 @@ export default {
         );
       }
     }
+
+    const gatewayResponse = await handleGatewayRequest(request, env);
+    if (gatewayResponse) return gatewayResponse;
 
     if (
       url.pathname === '/api' ||
