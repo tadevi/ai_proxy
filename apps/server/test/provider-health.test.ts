@@ -6,18 +6,17 @@ import { recordCombinationSuccess } from '../src/routes/gateway/provider-health.
 type UpdateCall = { table: unknown; values: Record<string, unknown> };
 type DeleteCall = { table: unknown };
 
-function createApp() {
+function createApp(selectResult: Record<string, unknown>[] = [
+  {
+    cliproxyAccountId: 'account-1',
+    upstreamModelId: 'claude-sonnet',
+  },
+]) {
   const updates: UpdateCall[] = [];
   const deletes: DeleteCall[] = [];
   let selectCount = 0;
 
-  const result = [
-    {
-      cliproxyAccountId: 'account-1',
-      upstreamModelId: 'claude-sonnet',
-    },
-  ];
-  const where = () => ({ limit: async () => result });
+  const where = () => ({ limit: async () => selectResult });
 
   const db = {
     select: () => {
@@ -80,8 +79,10 @@ describe('recordCombinationSuccess', () => {
     expect(getSelectCount()).toBe(1);
   });
 
-  it('does not look up mutable model-token associations after success', async () => {
-    const { app, updates, deletes, getSelectCount } = createApp();
+  it('recovers the configured token when success has no loaded token object', async () => {
+    const { app, updates, deletes, getSelectCount } = createApp([
+      { tokenId: 'configured-disabled-token' },
+    ]);
 
     await recordCombinationSuccess(app, {
       id: 'model-2',
@@ -89,9 +90,16 @@ describe('recordCombinationSuccess', () => {
       bindingId: null,
     });
 
-    expect(updates).toHaveLength(1);
+    expect(updates).toHaveLength(2);
     expect(updates[0]?.table).toBe(runtimeBindingRoutes);
+    expect(updates[1]?.table).toBe(connectionTokens);
+    expect(updates[1]?.values).toMatchObject({
+      enabled: true,
+      cooldownUntil: null,
+      latestError: null,
+      latestErrorAt: null,
+    });
     expect(deletes).toHaveLength(0);
-    expect(getSelectCount()).toBe(0);
+    expect(getSelectCount()).toBe(1);
   });
 });
