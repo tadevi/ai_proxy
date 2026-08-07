@@ -274,7 +274,7 @@ async function callRoute(env: GatewayMessageEnv, route: Route, request: Anthropi
   const timer = setTimeout(() => controller.abort(), Number.isFinite(timeout) ? timeout : 60000);
   let response: Response;
   try {
-    response = await fetch(endpoint(route, env), { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal, redirect: 'error' });
+    response = await fetch(endpoint(route, env), { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal, redirect: 'manual' });
   } finally {
     clearTimeout(timer);
   }
