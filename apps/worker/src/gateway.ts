@@ -1,8 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createDbClient } from '../../../packages/db/src/index.js';
-import type { WorkerDbEnv } from './db.js';
+import {
+  handleMessagesRequest,
+  type GatewayMessageEnv,
+} from './gateway-messages.js';
 
-const activityWriteInterval = "5 minutes";
+const activityWriteInterval = '5 minutes';
 
 const json = (body: unknown, status = 200, headers?: HeadersInit) =>
   new Response(JSON.stringify(body), {
@@ -34,7 +37,13 @@ function gatewayToken(request: Request) {
   return { token };
 }
 
-export async function handleGatewayRequest(request: Request, env: WorkerDbEnv): Promise<Response | undefined> {
+export async function handleGatewayRequest(
+  request: Request,
+  env: GatewayMessageEnv,
+): Promise<Response | undefined> {
+  const messageResponse = await handleMessagesRequest(request, env);
+  if (messageResponse) return messageResponse;
+
   const url = new URL(request.url);
   if (url.pathname !== '/v1/models') return undefined;
   if (request.method !== 'GET') {
