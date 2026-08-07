@@ -28,16 +28,27 @@ export async function recordCombinationSuccess(
     })
     .where(eq(runtimeBindingRoutes.id, combination.id));
 
-  if (combination.tokenId) {
+  let tokenId = combination.tokenId;
+  if (!tokenId) {
+    const [route] = await app.db
+      .select({ tokenId: runtimeBindingRoutes.tokenId })
+      .from(runtimeBindingRoutes)
+      .where(eq(runtimeBindingRoutes.id, combination.id))
+      .limit(1);
+    tokenId = route?.tokenId ?? null;
+  }
+
+  if (tokenId) {
     await app.db
       .update(connectionTokens)
       .set({
+        enabled: true,
         cooldownUntil: null,
         latestError: null,
         latestErrorAt: null,
         updatedAt: now,
       })
-      .where(eq(connectionTokens.id, combination.tokenId));
+      .where(eq(connectionTokens.id, tokenId));
   }
 
   await clearCliproxyModelCooldown(app, combination);
