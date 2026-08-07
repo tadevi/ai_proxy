@@ -13,6 +13,12 @@
   "build": {
     "command": "pnpm --filter @gateway/web build"
   },
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "d39d481f0cf24216a2156091dbf1aa05"
+    }
+  ],
   "assets": {
     "directory": "apps/web/dist",
     "binding": "ASSETS",
