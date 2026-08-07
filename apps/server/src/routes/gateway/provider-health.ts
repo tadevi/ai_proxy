@@ -32,6 +32,7 @@ export async function recordCombinationSuccess(
     await app.db
       .update(connectionTokens)
       .set({
+        enabled: true,
         cooldownUntil: null,
         latestError: null,
         latestErrorAt: null,
