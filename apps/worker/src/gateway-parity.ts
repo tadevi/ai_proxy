@@ -472,7 +472,7 @@ async function callRoute(env: GatewayParityEnv, route: Route, request: Anthropic
   const timer = setTimeout(() => controller.abort(), Number.isFinite(timeoutMs) ? timeoutMs : 60000);
   let response: Response;
   try {
-    response = await fetch(endpoint(route, env), { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal, redirect: 'error' });
+    response = await fetch(endpoint(route, env), { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal, redirect: 'manual' });
   } finally { clearTimeout(timer); }
   if (!response.ok) {
     const text = await response.text().catch(() => '');
