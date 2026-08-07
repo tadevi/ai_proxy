@@ -199,7 +199,9 @@ async function callSelectedRoute(
       headers,
       body: JSON.stringify(body),
       signal: controller.signal,
-      redirect: 'error',
+      // Cloudflare Workers do not implement redirect: 'error'. Manual preserves the
+      // no-follow behavior: 3xx responses come back to us and fail response.ok below.
+      redirect: 'manual',
     });
     if (!response.ok) {
       const text = await response.text().catch(() => '');
