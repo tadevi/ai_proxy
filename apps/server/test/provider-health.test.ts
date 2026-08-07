@@ -71,11 +71,11 @@ describe('recordCombinationSuccess', () => {
     });
     expect(updates[1]?.table).toBe(connectionTokens);
     expect(updates[1]?.values).toMatchObject({
+      enabled: true,
       cooldownUntil: null,
       latestError: null,
       latestErrorAt: null,
     });
-    expect(updates[1]?.values).not.toHaveProperty('enabled');
     expect(deletes).toEqual([{ table: cliproxyModelStates }]);
     expect(getSelectCount()).toBe(1);
   });
