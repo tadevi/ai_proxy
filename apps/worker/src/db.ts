@@ -1,4 +1,4 @@
-import { createDb } from '../../../packages/db/src/index.js';
+import { createDbClient } from '../../../packages/db/src/index.js';
 
 export interface WorkerDbEnv {
   DATABASE_URL?: string;
@@ -18,10 +18,11 @@ export async function checkDatabase(env: WorkerDbEnv) {
     };
   }
 
-  const { pool } = createDb(connectionString);
+  const client = createDbClient(connectionString);
   const startedAt = Date.now();
   try {
-    await pool.query('select 1');
+    await client.connect();
+    await client.query('select 1');
     return {
       ok: true as const,
       status: 200,
@@ -29,6 +30,6 @@ export async function checkDatabase(env: WorkerDbEnv) {
       connection: env.HYPERDRIVE ? 'hyperdrive' : 'database_url',
     };
   } finally {
-    await pool.end();
+    await client.end().catch(() => undefined);
   }
 }
