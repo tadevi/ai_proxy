@@ -1,4 +1,3 @@
-import { sql } from 'drizzle-orm';
 import { createDb } from '../../../packages/db/src/index.js';
 
 export interface WorkerDbEnv {
@@ -19,10 +18,10 @@ export async function checkDatabase(env: WorkerDbEnv) {
     };
   }
 
-  const { db, pool } = createDb(connectionString);
+  const { pool } = createDb(connectionString);
   const startedAt = Date.now();
   try {
-    await db.execute(sql`select 1`);
+    await pool.query('select 1');
     return {
       ok: true as const,
       status: 200,
