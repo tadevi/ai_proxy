@@ -38,14 +38,11 @@ export async function registerLogsRoutes(app: FastifyInstance) {
     if (cursor) {
       const cursorCondition = or(
         lt(requestLogs.createdAt, cursor.createdAt),
-        and(
-          eq(requestLogs.createdAt, cursor.createdAt),
-          lt(requestLogs.id, cursor.id),
-        ),
+        and(eq(requestLogs.createdAt, cursor.createdAt), lt(requestLogs.id, cursor.id)),
       );
       if (cursorCondition) conditions.push(cursorCondition);
     }
-    const pageSize = 50;
+    const pageSize = 20;
     const [totalRow] = await app.db
       .select({ total: sql<number>`count(*)::int` })
       .from(requestLogs)
@@ -83,10 +80,7 @@ export async function registerLogsRoutes(app: FastifyInstance) {
       .from(mappings)
       .leftJoin(
         mappingRoutes,
-        and(
-          eq(mappingRoutes.mappingId, mappings.id),
-          eq(mappingRoutes.enabled, true),
-        ),
+        and(eq(mappingRoutes.mappingId, mappings.id), eq(mappingRoutes.enabled, true)),
       )
       .where(eq(mappings.userId, req.dashboardUser!.id));
     return {
