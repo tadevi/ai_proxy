@@ -12,6 +12,12 @@ const json = (body: unknown, status = 200) =>
     headers: { 'content-type': 'application/json; charset=utf-8' },
   });
 
+const getErrorCode = (error: unknown) => {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' || typeof code === 'number' ? String(code) : undefined;
+};
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -21,16 +27,28 @@ export default {
     }
 
     if (url.pathname === '/__db-health') {
+      const diagnostics = {
+        hyperdriveBound: Boolean(env.HYPERDRIVE?.connectionString),
+        databaseUrlBound: Boolean(env.DATABASE_URL),
+        selectedConnection: env.HYPERDRIVE?.connectionString ? 'hyperdrive' : env.DATABASE_URL ? 'database_url' : 'none',
+      } as const;
+
       try {
         const result = await checkDatabase(env);
-        return json(result, result.status);
+        return json({ ...result, ...diagnostics }, result.status);
       } catch (error) {
-        console.error('Worker database health check failed', error);
+        const details = {
+          name: error instanceof Error ? error.name : undefined,
+          message: error instanceof Error ? error.message : 'Unknown database error',
+          code: getErrorCode(error),
+          ...diagnostics,
+        };
+        console.error('Worker database health check failed', details);
         return json(
           {
             ok: false,
             error: 'database_connection_failed',
-            message: error instanceof Error ? error.message : 'Unknown database error',
+            ...details,
           },
           503,
         );
