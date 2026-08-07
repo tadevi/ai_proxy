@@ -2,7 +2,14 @@
   "name": "ai-proxy",
   "main": "apps/worker/src/index.ts",
   "compatibility_date": "2026-08-07",
+  "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "invocation_logs": true
+    }
+  },
   "build": {
     "command": "pnpm --filter @gateway/web build"
   },
@@ -18,7 +25,8 @@
       "/anthropic",
       "/anthropic/*",
       "/health",
-      "/__health"
+      "/__health",
+      "/__db-health"
     ]
   }
 }
