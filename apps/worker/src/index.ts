@@ -4,10 +4,11 @@ import { handleDashboardAuthRequest } from './dashboard-auth.js';
 import { handleConnectionListRequest } from './dashboard-connection-list.js';
 import { handleDashboardLogsRequest } from './dashboard-logs.js';
 import { handleTokenDeleteRequest } from './dashboard-token-delete.js';
-import { handleDashboardWriteRequest, type DashboardWriteEnv } from './dashboard-write.js';
+import { handleDashboardWriteRequest } from './dashboard-write.js';
+import { handleGatewayMessageRequest, type GatewayMessageEnv } from './gateway-messages.js';
 import { handleGatewayRequest } from './gateway.js';
 
-interface Env extends DashboardWriteEnv {
+interface Env extends GatewayMessageEnv {
   ASSETS: {
     fetch(request: Request): Promise<Response>;
   };
@@ -76,6 +77,9 @@ export default {
 
     const dashboardWriteResponse = await handleDashboardWriteRequest(request, env);
     if (dashboardWriteResponse) return dashboardWriteResponse;
+
+    const gatewayMessageResponse = await handleGatewayMessageRequest(request, env);
+    if (gatewayMessageResponse) return gatewayMessageResponse;
 
     const dashboardApiResponse = await handleDashboardApiRequest(request, env);
     if (dashboardApiResponse) return dashboardApiResponse;
