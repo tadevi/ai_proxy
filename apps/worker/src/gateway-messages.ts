@@ -125,22 +125,26 @@ function decrypt(route: Route, keyValue: string) {
   ]).toString('utf8');
 }
 
+const routeSelection = `br.id, br.binding_id, br.token_id,
+       mb.display_name, mb.upstream_model_id, mb.api_format, mb.provider_base_path,
+       mb.request_path_override, mb.max_output_tokens,
+       pc.id AS connection_id, pc.display_name AS connection_name, pc.base_url,
+       ct.encrypted_api_key, ct.encryption_iv, ct.encryption_auth_tag,
+       ca.prefix AS cliproxy_prefix`;
+
 async function resolveRoutes(env: GatewayMessageEnv, userId: string, model: string) {
   return withClient(env, async (client) => {
     const mapped = await client.query<Route>(
-      `SELECT br.id, br.binding_id, br.token_id, br.display_name, br.upstream_model_id,
-              br.api_format, br.provider_base_path, br.request_path_override,
-              br.max_output_tokens, pc.id AS connection_id, pc.display_name AS connection_name,
-              pc.base_url, ct.encrypted_api_key, ct.encryption_iv, ct.encryption_auth_tag,
-              ca.prefix AS cliproxy_prefix
+      `SELECT ${routeSelection}
          FROM mappings m
          JOIN mapping_routes mr ON mr.mapping_id = m.id AND mr.enabled = TRUE
-         JOIN binding_routes br ON br.binding_id = mr.binding_id AND br.enabled = TRUE
-         JOIN provider_connections pc ON pc.id = br.provider_connection_id AND pc.enabled = TRUE
+         JOIN model_bindings mb ON mb.id = mr.binding_id
+         JOIN binding_routes br ON br.binding_id = mb.id AND br.enabled = TRUE
+         JOIN provider_connections pc ON pc.id = mb.connection_id AND pc.enabled = TRUE
          LEFT JOIN connection_tokens ct ON ct.id = br.token_id
-         LEFT JOIN model_bindings mb ON mb.id = br.binding_id
          LEFT JOIN cliproxy_accounts ca ON ca.id = mb.cliproxy_account_id
         WHERE m.user_id = $1 AND m.alias = $2
+          AND mb.user_id = $1
           AND (ct.id IS NULL OR (ct.enabled = TRUE AND (ct.cooldown_until IS NULL OR ct.cooldown_until <= NOW())))
           AND (br.fallback_cooldown_until IS NULL OR br.fallback_cooldown_until <= NOW())
         ORDER BY mr.position ASC, br.created_at ASC`,
@@ -148,17 +152,13 @@ async function resolveRoutes(env: GatewayMessageEnv, userId: string, model: stri
     );
     if (mapped.rows.length) return mapped.rows;
     const direct = await client.query<Route>(
-      `SELECT br.id, br.binding_id, br.token_id, br.display_name, br.upstream_model_id,
-              br.api_format, br.provider_base_path, br.request_path_override,
-              br.max_output_tokens, pc.id AS connection_id, pc.display_name AS connection_name,
-              pc.base_url, ct.encrypted_api_key, ct.encryption_iv, ct.encryption_auth_tag,
-              ca.prefix AS cliproxy_prefix
+      `SELECT ${routeSelection}
          FROM binding_routes br
-         JOIN provider_connections pc ON pc.id = br.provider_connection_id AND pc.enabled = TRUE
+         JOIN model_bindings mb ON mb.id = br.binding_id
+         JOIN provider_connections pc ON pc.id = mb.connection_id AND pc.enabled = TRUE
          LEFT JOIN connection_tokens ct ON ct.id = br.token_id
-         LEFT JOIN model_bindings mb ON mb.id = br.binding_id
          LEFT JOIN cliproxy_accounts ca ON ca.id = mb.cliproxy_account_id
-        WHERE br.user_id = $1 AND br.upstream_model_id = $2 AND br.enabled = TRUE
+        WHERE br.user_id = $1 AND mb.user_id = $1 AND mb.upstream_model_id = $2 AND br.enabled = TRUE
           AND (ct.id IS NULL OR (ct.enabled = TRUE AND (ct.cooldown_until IS NULL OR ct.cooldown_until <= NOW())))
           AND (br.fallback_cooldown_until IS NULL OR br.fallback_cooldown_until <= NOW())
         ORDER BY br.created_at ASC`,
@@ -349,7 +349,14 @@ export async function handleGatewayMessageRequest(request: Request, env: Gateway
     if (!body || typeof body.modelId !== 'string' || typeof body.prompt !== 'string' || !body.prompt.trim())
       return json({ error: 'modelId and prompt are required' }, 400);
     const route = await withClient(env, async (client) => {
-      const r = await client.query<{ upstream_model_id: string }>(`SELECT upstream_model_id FROM binding_routes WHERE id = $1 AND user_id = $2 LIMIT 1`, [body.modelId, userId]);
+      const r = await client.query<{ upstream_model_id: string }>(
+        `SELECT mb.upstream_model_id
+           FROM binding_routes br
+           JOIN model_bindings mb ON mb.id = br.binding_id
+          WHERE br.id = $1 AND br.user_id = $2 AND mb.user_id = $2
+          LIMIT 1`,
+        [body.modelId, userId],
+      );
       return r.rows[0];
     });
     if (!route) return json({ error: 'Model not found' }, 404);
