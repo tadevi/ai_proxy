@@ -2,6 +2,7 @@ import { checkDatabase } from './db.js';
 import { handleDashboardApiRequest } from './dashboard-api.js';
 import { handleDashboardAuthRequest } from './dashboard-auth.js';
 import { handleConnectionListRequest } from './dashboard-connection-list.js';
+import { handleDashboardLogsRequest } from './dashboard-logs.js';
 import { handleTokenDeleteRequest } from './dashboard-token-delete.js';
 import { handleDashboardWriteRequest, type DashboardWriteEnv } from './dashboard-write.js';
 import { handleGatewayRequest } from './gateway.js';
@@ -63,6 +64,9 @@ export default {
 
     const dashboardAuthResponse = await handleDashboardAuthRequest(request, env);
     if (dashboardAuthResponse) return dashboardAuthResponse;
+
+    const dashboardLogsResponse = await handleDashboardLogsRequest(request, env);
+    if (dashboardLogsResponse) return dashboardLogsResponse;
 
     const connectionListResponse = await handleConnectionListRequest(request, env);
     if (connectionListResponse) return connectionListResponse;
