@@ -125,7 +125,12 @@ export async function setModelFallbackCooldown(
   await app.db
     .update(runtimeBindingRoutes)
     .set({ fallbackCooldownUntil: until, updatedAt: new Date() })
-    .where(eq(runtimeBindingRoutes.id, modelId));
+    .where(
+      and(
+        eq(runtimeBindingRoutes.id, modelId),
+        eq(runtimeBindingRoutes.latestTestStatus, 'failed'),
+      ),
+    );
 }
 
 async function cliproxyModelKey(app: FastifyInstance, model: Pick<Model, 'bindingId'>) {
