@@ -14,6 +14,7 @@ import {
 import { aliases } from '@gateway/shared';
 import { mappingUpdateSchema, ruleInputSchema } from '@gateway/shared';
 import { ensureMapping, ensureMappings, listModels } from './index.js';
+import { findIneligibleMappingBindings } from './mapping-eligibility.js';
 
 export async function registerModelRoutes(app: FastifyInstance) {
   app.get('/api/models/usage', async (req) =>
@@ -163,6 +164,21 @@ export async function registerModelRoutes(app: FastifyInstance) {
       : [];
     if (owned.length !== input.routes.length)
       return reply.code(403).send({ error: 'One or more bindings are not owned by this account' });
+
+    const enabledBindingIds = input.routes
+      .filter((route) => route.enabled)
+      .map((route) => route.bindingId);
+    const ineligibleBindingIds = await findIneligibleMappingBindings(
+      app,
+      req.dashboardUser!.id,
+      enabledBindingIds,
+    );
+    if (ineligibleBindingIds.length)
+      return reply.code(409).send({
+        error: 'One or more enabled bindings have no gateway-eligible runtime route. Test or repair them before saving this mapping.',
+        ineligibleBindingIds,
+      });
+
     const mapping = await ensureMapping(app, req.dashboardUser!.id, alias);
     await app.db.transaction(async (tx) => {
       await tx.delete(mappingRoutes).where(eq(mappingRoutes.mappingId, mapping.id));
