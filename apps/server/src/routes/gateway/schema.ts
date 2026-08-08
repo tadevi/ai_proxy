@@ -29,8 +29,8 @@ export type ProviderErrorDetails = {
   response?: Record<string, unknown>;
 };
 
-export const fallbackStatuses = new Set([429, 500, 502, 503, 504]);
-export const cooldownStatuses = new Set([403]);
+export const fallbackStatuses = new Set([403, 429, 500, 502, 503, 504]);
+export const cooldownStatuses = new Set<number>();
 export const disableStatuses = new Set([401, 402]);
 export const disableErrorTypes = new Set(['insufficient_balance', 'quota_exceeded', 'billing_error']);
 
@@ -129,4 +129,3 @@ export function isImageCapabilityFailure(failure: UpstreamFailure) {
   const detail = JSON.stringify(failure.providerError ?? {}).toLowerCase();
   return detail.includes('image') && /(no endpoints?|not support|unsupported)/.test(detail);
 }
-
