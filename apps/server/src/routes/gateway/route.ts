@@ -329,6 +329,29 @@ export async function gatewayRoutes(app: FastifyInstance) {
   });
 }
 
+function noEligibleRouteMessage(model: string, skipped: object[]) {
+  const reasons = skipped
+    .map((item) => {
+      if (!isRecord(item)) return null;
+      const upstreamModelId =
+        typeof item.upstreamModelId === 'string' ? item.upstreamModelId : 'configured route';
+      const reason = typeof item.reason === 'string' ? item.reason : 'unknown_reason';
+      const detail =
+        reason === 'images_unsupported'
+          ? 'does not support images in this conversation'
+          : reason === 'images_capability_unknown'
+            ? 'image support is unknown, but this conversation contains image content'
+            : reason === 'images_unavailable_upstream'
+              ? 'has no image-capable upstream endpoint available'
+              : reason.replaceAll('_', ' ');
+      return `${upstreamModelId}: ${detail}`;
+    })
+    .filter((item): item is string => Boolean(item));
+  return reasons.length
+    ? `No eligible ${model} route. ${reasons.join('; ')}.`
+    : `No eligible ${model} route. Check mapping, route/provider/credential enabled state, and active cooldowns.`;
+}
+
 async function handleMessage(
   app: FastifyInstance,
   raw: unknown,
@@ -373,6 +396,7 @@ async function handleMessage(
   const request = normalizeSystemMessages(parsed.data);
   const { attempts, skipped } = await resolve(app, userId, request.model, request);
   if (!attempts.length) {
+    const message = noEligibleRouteMessage(request.model, skipped);
     await writeLog(app, {
       userId,
       requestId,
@@ -380,18 +404,13 @@ async function handleMessage(
       status: 400,
       latencyMs: Date.now() - started,
       errorCategory: 'no_eligible_route',
+      providerError: { message },
       thinkingConfig: thinkingLogConfig(request),
       skippedRoutes: skipped,
     });
     return reply
       .code(400)
-      .send(
-        anthropicError(
-          'invalid_request_error',
-          `No eligible ${request.model} route is configured.`,
-          requestId,
-        ),
-      );
+      .send(anthropicError('invalid_request_error', message, requestId));
   }
   let failure: UpstreamFailure | undefined;
   let lastAttempt: Attempt | undefined;
